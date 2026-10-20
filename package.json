@@ -1,0 +1,48 @@
+{
+  "name": "claude-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Aspect Ratio Digital desktop dashboard: a 3D shell with four switchable concepts.",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "app": "concurrently -k -n vite,electron -c cyan,magenta \"vite --strictPort\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build": "tsc --noEmit && vite build",
+    "app:prod": "vite build && electron .",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
+    "electron": "^44.9.2",
+    "playwright-core": "^1.64.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "wait-on": "^9.5.1"
+  },
+  "dependencies": {
+    "@fontsource/archivo": "^5.3.0",
+    "@fontsource/dm-sans": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
+    "@fontsource/manrope": "^5.3.0",
+    "@fontsource/oxanium": "^5.3.0",
+    "@fontsource/share-tech-mono": "^5.3.0",
+    "@fontsource/syne": "^5.3.0",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@react-three/postprocessing": "^3.2.1",
+    "maath": "^0.10.8",
+    "postprocessing": "^6.39.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.186.1",
+    "zustand": "^5.0.15"
+  }
+}
