@@ -5,6 +5,7 @@
 const { app, BrowserWindow, shell, dialog } = require('electron')
 const path = require('path')
 const { pathToFileURL } = require('url')
+const { startUpdater } = require('./updater.cjs')
 
 // Keep the GPU path fast for the 3D scene.
 app.commandLine.appendSwitch('enable-gpu-rasterization')
@@ -16,6 +17,8 @@ const ROOT = path.join(__dirname, '..')
 let server = null
 
 if (!app.requestSingleInstanceLock()) app.quit()
+// lets Windows show the app's notifications (update progress) under its own name
+if (process.platform === 'win32') app.setAppUserModelId('digital.aspectratio.blueprint')
 
 async function startServer() {
   // Settings, token and notifications live in the app's own data folder.
@@ -50,6 +53,7 @@ function createWindow(url) {
   })
 
   win.loadURL(url)
+  return win
 }
 
 app.on('second-instance', () => {
@@ -71,7 +75,8 @@ app.whenReady().then(async () => {
       return
     }
   }
-  createWindow(url)
+  const win = createWindow(url)
+  if (!process.env.VITE_DEV_SERVER_URL) startUpdater(win)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(url)
   })

@@ -25,7 +25,7 @@ If PowerShell says `npm.ps1 cannot be loaded because running scripts is disabled
 
 Windows may show "Windows protected your PC" the first time, because the installer isn't code-signed. Click **More info**, then **Run anyway**.
 
-To update later, double-click **Update Blueprint.cmd** in `D:\Claude-Dashboard`. It closes the app, pulls the latest changes, rebuilds, reinstalls quietly and reopens it. Your settings are kept. Right-click it and choose **Send to > Desktop (create shortcut)** to keep it handy.
+**It updates itself.** Each time it opens, the app checks the folder it was built from (here `D:\Claude-Dashboard`) for new changes on GitHub. If there are any, it pulls them and rebuilds in the background while you keep working, then offers **Restart now** or installs quietly when you next close it. Your settings are kept, and the log is in `%APPDATA%\ARD Blueprint\update.log`. If you ever want to force it, double-click **Update Blueprint.cmd** in the same folder.
 
 The app keeps its settings, GitHub token and notifications in `%APPDATA%\ARD Blueprint\data`, separate from the `.jarvis` folder the browser version uses, so connect GitHub once inside the app.
 
