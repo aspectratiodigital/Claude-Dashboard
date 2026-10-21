@@ -66,7 +66,8 @@ const coreVert = /* glsl */ `
     vec3 p0 = n * (1.0 + field(n));
     vec3 p1 = normalize(n + tA * e); p1 *= 1.0 + field(p1);
     vec3 p2 = normalize(n + tB * e); p2 *= 1.0 + field(p2);
-    vec3 nn = normalize(cross(p1 - p0, p2 - p0));
+    vec3 cr = cross(p1 - p0, p2 - p0);
+    vec3 nn = dot(cr, cr) > 1e-12 ? normalize(cr) : n;
     vD = length(p0) - 1.0;
     vec4 mv = modelViewMatrix * vec4(p0, 1.0);
     vN = normalize(normalMatrix * nn);
@@ -78,7 +79,7 @@ const coreFrag = /* glsl */ `
   uniform float uLevel; uniform vec3 uA; uniform vec3 uB; uniform vec3 uC;
   varying vec3 vN; varying vec3 vV; varying float vD;
   void main(){
-    float ndv = max(dot(vN, vV), 0.0);
+    float ndv = clamp(dot(normalize(vN), normalize(vV)), 0.0, 1.0);
     float f = pow(1.0 - ndv, 2.2);
     vec3 body = mix(uA, uB, smoothstep(-0.12, 0.16, vD));
     vec3 col = body * (0.32 + 0.25 * ndv) + uC * f * (1.25 + uLevel * 0.8);
@@ -90,7 +91,7 @@ const orbFrag = /* glsl */ `
   uniform vec3 uColor; uniform float uGlow;
   varying vec3 vN; varying vec3 vV;
   void main(){
-    float ndv = max(dot(vN, vV), 0.0);
+    float ndv = clamp(dot(normalize(vN), normalize(vV)), 0.0, 1.0);
     float f = pow(1.0 - ndv, 2.0);
     vec3 col = uColor * (0.28 + f * (1.1 + uGlow)) + vec3(1.0) * pow(ndv, 18.0) * 0.22;
     gl_FragColor = vec4(col, 1.0);
@@ -100,7 +101,7 @@ const shellFrag = /* glsl */ `
   uniform vec3 uColor; uniform float uAlpha;
   varying vec3 vN; varying vec3 vV;
   void main(){
-    float f = pow(1.0 - max(dot(vN, vV), 0.0), 3.0);
+    float f = pow(1.0 - clamp(dot(normalize(vN), normalize(vV)), 0.0, 1.0), 3.0);
     gl_FragColor = vec4(uColor * f * uAlpha, f * uAlpha);
   }`
 
@@ -129,7 +130,7 @@ const ribbonFrag = /* glsl */ `
   varying vec2 vUv; varying vec3 vN; varying vec3 vV;
   void main(){
     float x = vUv.x;
-    float edge = pow(abs(dot(vN, vV)), 1.4);
+    float edge = pow(clamp(abs(dot(normalize(vN), normalize(vV))), 0.0, 1.0), 1.4);
     float bands = pow(0.5 + 0.5 * sin(x * 18.0 - uTime * uSpeed), 6.0);
     float ends = smoothstep(0.0, 0.1, x) * smoothstep(1.0, 0.82, x);
     float pk = exp(-pow((x - uPacket) * 12.0, 2.0)) * step(-0.01, uPacket);
@@ -173,9 +174,10 @@ const backFrag = /* glsl */ `
     vec2 p = vUv - vec2(0.5, 0.55);
     float v = exp(-dot(p, p) * 3.2);
     float n = snoise(vec3(vUv * 2.2, uTime * 0.03)) * 0.5 + 0.5;
-    vec3 a = vec3(0.012, 0.035, 0.07);
-    vec3 b = vec3(0.03, 0.09, 0.15);
-    vec3 c = vec3(0.07, 0.04, 0.14);
+    // ShaderMaterial writes linear colour, so these are deliberately tiny
+    vec3 a = vec3(0.0010, 0.0025, 0.0060);
+    vec3 b = vec3(0.0040, 0.0140, 0.0350);
+    vec3 c = vec3(0.0120, 0.0040, 0.0300);
     vec3 col = mix(a, b, v) + c * n * v * 0.9;
     gl_FragColor = vec4(col, 1.0);
   }`
@@ -520,14 +522,18 @@ function Rig({ pointer }: { pointer: MutableRefObject<{ x: number; y: number }> 
   useFrame((state, dt) => {
     const sel = useApp.getState().selectedId
     const intro = ease(state.clock.elapsedTime / 2.4)
-    const z = 16 - intro * 4.6 + (sel ? 0.4 : 0)
+    // pull back far enough that the ring (plus its labels) fits between the side
+    // panels at any window shape
+    const cam = camera as THREE.PerspectiveCamera
+    const fit = THREE.MathUtils.clamp((R + 0.9) / (0.56 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * (size.width / size.height)), 14, 34)
+    const z = fit + (1 - intro) * 4.5 + (sel ? 0.6 : 0)
     camera.position.x = damp(camera.position.x, pointer.current.x * 0.8, 1.6, dt)
     camera.position.y = damp(camera.position.y, 2.1 - pointer.current.y * 0.5, 1.6, dt)
     camera.position.z = damp(camera.position.z, z, 2, dt)
     camera.lookAt(look)
     // slide the whole scene left when the detail panel opens, without changing perspective
     offset.current = damp(offset.current, sel ? size.width * 0.24 : 0, 3, dt)
-    ;(camera as THREE.PerspectiveCamera).setViewOffset(size.width, size.height, offset.current, 0, size.width, size.height)
+    cam.setViewOffset(size.width, size.height, offset.current, 0, size.width, size.height)
   })
   return null
 }
@@ -557,7 +563,7 @@ export function NexusScene({ level, pointer }: { level: MutableRefObject<number>
   return (
     <>
       <color attach="background" args={['#030810']} />
-      <fog attach="fog" args={['#030810', 14, 34]} />
+      <fog attach="fog" args={['#030810', 18, 40]} />
       <Rig pointer={pointer} />
       <Backdrop />
       <Core level={level} ripple={ripple} born={born} />

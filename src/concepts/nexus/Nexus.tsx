@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import { NexusScene, NX_COLOR } from './Scene'
 import { useData, useProject } from '../../data/store'
 import { STATUS_LABEL, relTime, signals } from '../../data/derive'
@@ -8,8 +7,9 @@ import { useClaude, SUGGESTIONS } from '../../shared/useClaude'
 import { CountUp, Sparkline, useClock, usePointer } from '../../shared/bits'
 import { DevicePair } from '../../shared/Preview'
 import { LabelLayer } from '../../shared/Labels'
-import { SceneCanvas } from '../../shared/SceneCanvas'
+import { Glow, SceneCanvas } from '../../shared/SceneCanvas'
 import { KindIcon } from '../../shared/icons'
+import { NoteChip } from '../../shared/pulse'
 import { ActivityFeed, Facts, HealthBlock, IssueList, Links, StatusPill, ThreadItem, ThreadList } from '../../shared/sheet'
 import './nexus.css'
 
@@ -25,11 +25,7 @@ export default function Nexus() {
         className="nx-canvas"
         camera={{ position: [0, 2.1, 16], fov: 40 }}
         onPointerMissed={() => useApp.getState().select(null)}
-        effects={(tier) => (
-          <EffectComposer multisampling={tier === 'high' ? 4 : 0} resolutionScale={tier === 'high' ? 1 : 0.6}>
-            <Bloom mipmapBlur intensity={0.9} luminanceThreshold={0.55} luminanceSmoothing={0.35} radius={0.75} />
-          </EffectComposer>
-        )}
+        effects={(tier) => <Glow tier={tier} />}
       >
         <NexusScene level={claude.level} pointer={pointer} />
       </SceneCanvas>
@@ -64,6 +60,7 @@ function NodeLabel({ id }: { id: string }) {
         <b>{p.name}</b>
         <span>{active ? p.reason : STATUS_LABEL[p.status]}</span>
       </div>
+      <NoteChip projectId={id} className="nx-chip" />
     </div>
   )
 }

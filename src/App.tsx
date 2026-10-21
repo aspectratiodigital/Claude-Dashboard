@@ -27,6 +27,7 @@ export default function App() {
   const setPalette = useApp((s) => s.setPalette)
   const toggleFps = useApp((s) => s.toggleFps)
   const select = useApp((s) => s.select)
+  const selectedId = useApp((s) => s.selectedId)
   const [shown, setShown] = useState<ConceptId>(concept)
   const [wipe, setWipe] = useState<'idle' | 'cover' | 'reveal'>('idle')
   useTier()
@@ -82,7 +83,7 @@ export default function App() {
   const View = views[shown]
 
   return (
-    <div className="app" data-concept={shown}>
+    <div className="app" data-concept={shown} data-selected={!!selectedId}>
       <Suspense fallback={<div className="boot">Loading {CONCEPTS.find((c) => c.id === shown)?.name}</div>}>
         <View />
       </Suspense>

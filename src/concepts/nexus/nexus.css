@@ -37,6 +37,12 @@
   opacity: 0.72;
   transition: transform 0.45s var(--c-ease), opacity 0.45s, background 0.45s;
 }
+.nx-chip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 34px);
+  translate: -50% 0;
+}
 .nx-label b {
   font-size: 12px;
   font-weight: 600;
@@ -59,6 +65,7 @@
 .nx-hud {
   position: absolute;
   inset: 0;
+  z-index: 2;
   pointer-events: none;
   display: grid;
   grid-template-columns: minmax(270px, 300px) 1fr minmax(320px, 360px);

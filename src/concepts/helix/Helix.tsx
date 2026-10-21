@@ -1,38 +1,45 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Canvas } from '@react-three/fiber'
-import { useAdaptiveDpr } from '../../shared/Adaptive'
 import { HelixScene, HX_STATUS } from './Scene'
-import { PROJECTS, SITES, STATUS_LABEL, siteById } from '../../data/mock'
+import { useData, useProject } from '../../data/store'
+import { STATUS_LABEL, domainOf, relTime, signals } from '../../data/derive'
 import { useApp } from '../../store'
-import { usePointer, Sparkline, useClock } from '../../shared/bits'
-import { SitePreview } from '../../shared/SitePreview'
+import { usePointer, useClock } from '../../shared/bits'
+import { DevicePair } from '../../shared/Preview'
+import { SceneCanvas } from '../../shared/SceneCanvas'
+import { useTier } from '../../shared/quality'
+import { LabelLayer } from '../../shared/Labels'
+import { NoteChip } from '../../shared/pulse'
 import { useClaude, SUGGESTIONS } from '../../shared/useClaude'
+import { ActivityFeed, Facts, HealthBlock, IssueList, Links, StatusPill, ThreadList } from '../../shared/sheet'
 import './helix.css'
 
 export default function Helix() {
-  const [dpr, monitor] = useAdaptiveDpr(1.75)
   const pointer = usePointer()
+  const tier = useTier()
+  const projects = useData((s) => s.projects)
   const selectedId = useApp((s) => s.selectedId)
   const select = useApp((s) => s.select)
   const scroll = useRef(0)
   const target = useRef(0)
   const [focus, setFocus] = useState(0)
   const idle = useRef<number | undefined>(undefined)
+  const count = useRef(projects.length)
+  count.current = projects.length
 
   const go = useCallback((i: number) => {
-    target.current = Math.max(0, Math.min(SITES.length - 1, i))
+    target.current = Math.max(0, Math.min(count.current - 1, i))
   }, [])
 
-  // Smooth scroll: wheel/drag set a target, the frame loop eases toward it,
+  // Smooth scroll: wheel/drag set a target, a light rAF loop eases toward it,
   // and the helix snaps to the nearest card once input stops.
   useEffect(() => {
     let raf = 0
     let last = performance.now()
     const tick = (t: number) => {
-      const dt = Math.min(0.05, (t - last) / 1000)
-      last = t
+      const dt = Math.min(0.05, Math.max(0, t - last) / 1000)
+      last = Math.max(last, t)
       scroll.current += (target.current - scroll.current) * Math.min(1, dt * 6)
-      const f = Math.round(scroll.current)
+      const f = Math.max(0, Math.min(count.current - 1, Math.round(scroll.current)))
       setFocus((p) => (p === f ? p : f))
       raf = requestAnimationFrame(tick)
     }
@@ -46,15 +53,16 @@ export default function Helix() {
       idle.current = window.setTimeout(() => (target.current = Math.round(target.current)), 140)
     }
     const onWheel = (e: WheelEvent) => {
-      if ((e.target as HTMLElement).closest('.hx-drawer, .palette')) return
-      target.current = Math.max(-0.35, Math.min(SITES.length - 0.65, target.current + e.deltaY * 0.0022))
+      if ((e.target as HTMLElement).closest('.hx-drawer, .palette, .drawer, .modal, .stage')) return
+      target.current = Math.max(-0.35, Math.min(count.current - 0.65, target.current + e.deltaY * 0.0022))
       snap()
     }
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest('input')) return
+      if ((e.target as HTMLElement).closest('input, textarea, select') || useApp.getState().stage) return
       if (e.key === 'ArrowDown' || e.key === 'j') go(Math.round(target.current) + 1)
       if (e.key === 'ArrowUp' || e.key === 'k') go(Math.round(target.current) - 1)
-      if (e.key === 'Enter') useApp.getState().select(SITES[Math.round(target.current)].id)
+      const p = useData.getState().projects[Math.round(target.current)]
+      if (e.key === 'Enter' && p) useApp.getState().select(p.id)
     }
     let dragY: number | null = null
     const down = (e: PointerEvent) => {
@@ -66,7 +74,7 @@ export default function Helix() {
       dragY = e.clientY
     }
     const up = () => {
-      if (dragY !== null) target.current = Math.round(Math.max(0, Math.min(SITES.length - 1, target.current)))
+      if (dragY !== null) target.current = Math.round(Math.max(0, Math.min(count.current - 1, target.current)))
       dragY = null
     }
     window.addEventListener('wheel', onWheel, { passive: true })
@@ -83,34 +91,36 @@ export default function Helix() {
     }
   }, [go])
 
-  // Opening a site elsewhere (palette) scrolls the helix to it.
+  // Opening a project elsewhere (palette, notification) scrolls the helix to it.
   useEffect(() => {
-    const i = SITES.findIndex((s) => s.id === selectedId)
+    const i = useData.getState().projects.findIndex((s) => s.id === selectedId)
     if (i >= 0) go(i)
   }, [selectedId, go])
 
   const onPick = useCallback(
     (i: number) => {
-      if (i === Math.round(target.current)) select(SITES[i].id)
+      const p = useData.getState().projects[i]
+      if (i === Math.round(target.current) && p) select(p.id)
       else go(i)
     },
     [go, select],
   )
 
-  const site = SITES[Math.max(0, Math.min(SITES.length - 1, focus))]
+  const project = projects[Math.max(0, Math.min(projects.length - 1, focus))]
 
   return (
     <div className="hx" data-drawer={!!selectedId}>
-      <Canvas
-        className="hx-canvas"
-        dpr={dpr}
-        flat
-        camera={{ position: [-1.9, 0, 15], fov: 38 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
-      >
-        {monitor}
-        <HelixScene scroll={scroll} pointer={pointer} onPick={onPick} drawer={!!selectedId} />
-      </Canvas>
+      <SceneCanvas className="hx-canvas" flat camera={{ position: [-1.9, 0, 15], fov: 38 }} maxDpr={1.75}>
+        <HelixScene scroll={scroll} pointer={pointer} onPick={onPick} drawer={!!selectedId} tier={tier} />
+      </SceneCanvas>
+
+      <LabelLayer>
+        {projects.map((p) => (
+          <div key={p.id} id={`lbl-hx-${p.id}`}>
+            <NoteChip projectId={p.id} className="hx-chip" />
+          </div>
+        ))}
+      </LabelLayer>
 
       <header className="hx-top">
         <div className="hx-mark">
@@ -120,86 +130,131 @@ export default function Helix() {
         <Greeting />
       </header>
 
-      <section className="hx-hero" aria-live="polite">
-        <p className="hx-count">
-          {String(focus + 1).padStart(2, '0')} of {String(SITES.length).padStart(2, '0')}
-        </p>
-        <h1 key={site.id}>
-          {site.name.split(' ').map((w, i) => (
-            <span key={i} style={{ ['--i' as string]: i }}>
-              {w}
+      {project && (
+        <section className="hx-hero" aria-live="polite">
+          <p className="hx-count">
+            {String(focus + 1).padStart(2, '0')} of {String(projects.length).padStart(2, '0')}
+          </p>
+          <h1 key={project.id}>
+            {project.name.split(' ').map((w, i) => (
+              <span key={i} style={{ ['--i' as string]: i }}>
+                {w}
+              </span>
+            ))}
+          </h1>
+          <div className="hx-meta" key={`m-${project.id}`}>
+            <span className="hx-pill" style={{ ['--c' as string]: HX_STATUS[project.status] }}>
+              {STATUS_LABEL[project.status]}
             </span>
-          ))}
-        </h1>
-        <div className="hx-meta" key={`m-${site.id}`}>
-          <span className="hx-pill" style={{ ['--c' as string]: HX_STATUS[site.status] }}>
-            {STATUS_LABEL[site.status]}
-          </span>
-          <span>{site.framework}</span>
-          <span>{site.branch}</span>
-        </div>
-        <p className="hx-tag" key={`t-${site.id}`}>
-          {site.client.replace(/\.$/, '')}. {site.commits[0].message}, {site.commits[0].ago} ago.
-        </p>
-        <div className="hx-actions">
-          <button className="hx-btn primary" onClick={() => select(site.id)}>
-            Open workspace
-          </button>
-          <a className="hx-btn" href={`https://github.com/${site.repo}`} target="_blank" rel="noreferrer">
-            View repo
-          </a>
-        </div>
-      </section>
+            <span>{project.framework}</span>
+            <span>{project.defaultBranch}</span>
+          </div>
+          <p className="hx-tag" key={`t-${project.id}`}>
+            {project.reason}. {project.commits[0] ? `Last change: ${project.commits[0].message}, ${relTime(project.commits[0].date)}.` : ''}
+          </p>
+          <Signals id={project.id} />
+          <div className="hx-actions">
+            <button className="hx-btn primary" onClick={() => select(project.id)}>
+              Open workspace
+            </button>
+            <a className="hx-btn" href={`https://github.com/${project.repo}`} target="_blank" rel="noreferrer">
+              View repo
+            </a>
+          </div>
+        </section>
+      )}
 
-      <nav className="hx-rail" aria-label="Sites">
-        {SITES.map((s, i) => (
+      <nav className="hx-rail" aria-label="Projects">
+        {projects.map((s, i) => (
           <button key={s.id} aria-current={i === focus} onClick={() => go(i)} style={{ ['--c' as string]: HX_STATUS[s.status] }}>
             <span>{s.name}</span>
-            <i />
+            <i data-busy={s.status === 'building' || s.status === 'deploying'} />
           </button>
         ))}
       </nav>
 
-      <p className="hx-hint">Scroll or drag to move through your sites. Click the front card to open it.</p>
+      <p className="hx-hint">Scroll or drag to move through your projects. Click the front card to open it.</p>
 
       <Drawer />
     </div>
   )
 }
 
+/** What's happening on the focused project, as a row of quiet chips. */
+function Signals({ id }: { id: string }) {
+  const p = useProject(id)
+  if (!p) return null
+  const s = signals(p)
+  const items: [string, string, string][] = []
+  if (s.building) items.push(['progress', 'Building', 'A CI run is in progress'])
+  if (s.deploying) items.push(['info', 'Deploying', 'A deploy is on its way'])
+  if (s.broken) items.push(['critical', 'Broken', p.reason])
+  if (s.down) items.push(['critical', 'Site down', 'The live site did not answer'])
+  if (s.claude) items.push(['info', 'Claude is working', p.threads.find((t) => t.status === 'working')?.title ?? ''])
+  if (s.issues) items.push(['warning', `${s.issues} open issue${s.issues === 1 ? '' : 's'}`, p.issues[0]?.title ?? ''])
+  if (s.prs) items.push(['info', `${s.prs} open PR${s.prs === 1 ? '' : 's'}`, p.pulls.find((x) => x.state === 'open')?.title ?? ''])
+  if (s.fresh) items.push(['success', 'Just deployed', ''])
+  if (!items.length) return null
+  return (
+    <ul className="hx-signals" key={id}>
+      {items.slice(0, 4).map(([lv, label, title], i) => (
+        <li key={label} data-level={lv} title={title} style={{ ['--i' as string]: i }}>
+          {label}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function Greeting() {
   const now = useClock()
+  const projects = useData((s) => s.projects)
+  const working = projects.reduce((a, p) => a + p.threads.filter((t) => t.status === 'working').length, 0)
   const h = now.getHours()
   const part = h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening'
   return (
     <p className="hx-greet">
-      Good {part}, Dylan. {PROJECTS.length} Claude sessions are open.
+      Good {part}, Dylan. {working ? `Claude is working on ${working} thing${working === 1 ? '' : 's'}.` : `${projects.length} projects, all quiet.`}
     </p>
   )
 }
 
+type Tab = 'overview' | 'threads' | 'activity' | 'health' | 'issues' | 'claude'
+
 function Drawer() {
   const selectedId = useApp((s) => s.selectedId)
   const select = useApp((s) => s.select)
-  const site = siteById(selectedId)
-  const [tab, setTab] = useState<'preview' | 'claude' | 'activity'>('preview')
+  const p = useProject(selectedId)
+  const [tab, setTab] = useState<Tab>('overview')
   const claude = useClaude(selectedId)
   const [text, setText] = useState('')
   const log = useRef<HTMLDivElement>(null)
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' })
   }, [claude.messages, tab])
+  useEffect(() => setTab('overview'), [selectedId])
+
+  const tabs: [Tab, string][] = p
+    ? [
+        ['overview', 'Overview'],
+        ['threads', `Threads (${p.threads.length})`],
+        ['activity', 'Activity'],
+        ['health', 'Health'],
+        ['issues', `Issues (${p.issues.length})`],
+        ['claude', 'Ask Claude'],
+      ]
+    : []
 
   return (
-    <aside className="hx-drawer" aria-hidden={!site} data-open={!!site}>
-      {site && (
+    <aside className="hx-drawer" aria-hidden={!p} data-open={!!p}>
+      {p && (
         <>
           <header>
             <div>
-              <h2>{site.name}</h2>
-              <a href={`https://${site.domain}`} target="_blank" rel="noreferrer">
-                {site.domain}
-              </a>
+              <h2>{p.name}</h2>
+              <p>
+                <StatusPill project={p} /> <span>{p.reason}</span>
+              </p>
             </div>
             <button className="hx-x" onClick={() => select(null)} aria-label="Close workspace">
               <svg width="14" height="14" viewBox="0 0 14 14">
@@ -208,78 +263,54 @@ function Drawer() {
             </button>
           </header>
           <div className="hx-tabs" role="tablist">
-            {(['preview', 'claude', 'activity'] as const).map((t) => (
+            {tabs.map(([t, label]) => (
               <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-                {t === 'preview' ? 'Preview' : t === 'claude' ? 'Ask Claude' : 'Activity'}
+                {label}
               </button>
             ))}
           </div>
-          {tab === 'preview' && (
-            <div className="hx-pane">
-              <SitePreview site={site} className="hx-preview" />
-              <dl className="hx-stats">
-                <div>
-                  <dt>Visitors this week</dt>
-                  <dd>
-                    {site.visitors7d.toLocaleString()} <Sparkline data={site.traffic} width={70} height={18} />
-                  </dd>
+          <div className="hx-pane">
+            {tab === 'overview' && (
+              <>
+                <DevicePair project={p} className="hx-preview" />
+                <Links project={p} />
+                <Facts project={p} />
+              </>
+            )}
+            {tab === 'threads' && <ThreadList project={p} />}
+            {tab === 'activity' && <ActivityFeed project={p} limit={14} />}
+            {tab === 'health' && <HealthBlock project={p} />}
+            {tab === 'issues' && <IssueList project={p} />}
+            {tab === 'claude' && (
+              <div className="hx-chat">
+                <div className="hx-log" ref={log}>
+                  {claude.messages.map((m) => (
+                    <p key={m.id} data-role={m.role}>
+                      {m.text || '…'}
+                    </p>
+                  ))}
                 </div>
-                <div>
-                  <dt>Uptime</dt>
-                  <dd>{site.uptime}%</dd>
+                <div className="hx-sugg">
+                  {SUGGESTIONS.map((s) => (
+                    <button key={s} onClick={() => claude.send(s)}>
+                      {s}
+                    </button>
+                  ))}
                 </div>
-                <div>
-                  <dt>Lighthouse</dt>
-                  <dd>{site.lighthouse}</dd>
-                </div>
-              </dl>
-            </div>
-          )}
-          {tab === 'claude' && (
-            <div className="hx-pane hx-chat">
-              <div className="hx-log" ref={log}>
-                {claude.messages.map((m) => (
-                  <p key={m.id} data-role={m.role}>
-                    {m.text || '…'}
-                  </p>
-                ))}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    claude.send(text)
+                    setText('')
+                  }}
+                >
+                  <input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Ask about ${p.name}`} aria-label="Message Claude" />
+                  <button disabled={!text.trim()}>Send</button>
+                </form>
               </div>
-              <div className="hx-sugg">
-                {SUGGESTIONS.map((s) => (
-                  <button key={s} onClick={() => claude.send(s)}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  claude.send(text)
-                  setText('')
-                }}
-              >
-                <input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Ask about ${site.name}`} aria-label="Message Claude" />
-                <button disabled={!text.trim()}>Send</button>
-              </form>
-            </div>
-          )}
-          {tab === 'activity' && (
-            <div className="hx-pane">
-              <ol className="hx-commits">
-                {site.commits.map((c) => (
-                  <li key={c.sha}>
-                    <b>{c.message}</b>
-                    <span>
-                      {c.author} committed {c.sha} {c.ago} ago
-                    </span>
-                  </li>
-                ))}
-              </ol>
-              <p className="hx-note">
-                {site.openPRs} open pull request{site.openPRs === 1 ? '' : 's'} across {site.branches} branch{site.branches === 1 ? '' : 'es'}.
-              </p>
-            </div>
-          )}
+            )}
+          </div>
+          <p className="hx-domain">{domainOf(p)}</p>
         </>
       )}
     </aside>

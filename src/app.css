@@ -48,7 +48,8 @@ button {
 .app {
   position: fixed;
   inset: 0;
-  overflow: hidden;
+  /* clip, not hidden: nothing (focus, scrollIntoView) can scroll the app sideways */
+  overflow: clip;
   --ui-bg: rgba(6, 16, 28, 0.72);
   --ui-solid: #07111d;
   --ui-fg: #dff6ff;
@@ -192,7 +193,7 @@ button {
   position: absolute;
   inset: 0;
   z-index: 1;
-  overflow: hidden;
+  overflow: clip;
   pointer-events: none;
 }
 .label-layer > * {

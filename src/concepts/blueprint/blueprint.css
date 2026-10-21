@@ -6,6 +6,7 @@
   --line-3: rgba(220, 233, 255, 0.22);
   --mark: #ffd23f;
   --alert: #ff6b6b;
+  --go: #7dffb0;
   position: absolute;
   inset: 0;
   background: var(--paper);
@@ -195,16 +196,38 @@
   border: 1px solid var(--line-2);
   background: var(--paper);
 }
+.bp-tag {
+  position: relative;
+}
 .bp-tag span {
-  display: block;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  translate: -50% 0;
   margin-top: 3px;
   font-size: 10px;
   opacity: 0;
   transform: translateY(-4px);
   transition: opacity 0.25s, transform 0.25s;
 }
-.bp-tag[data-status='attention'] b {
+.bp-tag[data-status='attention'] b,
+.bp-tag[data-status='broken'] b {
   border-color: var(--alert);
+}
+.bp[data-dissect='true'] .bp-tag-wrap {
+  opacity: 0 !important;
+}
+.bp-tag-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.bp-chip {
+  border-radius: 0;
+  background: var(--paper);
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
 }
 .bp-tag[data-active='true'] {
   opacity: 1;
@@ -227,7 +250,10 @@
 .bp-callout {
   top: 110px;
   right: 48px;
-  width: 380px;
+  bottom: 44px;
+  width: min(540px, 40vw);
+  display: flex;
+  flex-direction: column;
   padding: 16px;
   background: rgba(18, 62, 114, 0.88);
   border: 1.5px solid var(--line);
@@ -440,4 +466,254 @@
   .bp-legend {
     display: none;
   }
+}
+
+/* Opened-up building: leader-line labels on each part */
+.bp-part-wrap {
+  pointer-events: none;
+}
+.bp-part {
+  all: unset;
+  pointer-events: auto;
+  cursor: pointer;
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--line);
+  background: var(--paper);
+  border: 1px solid var(--line-2);
+  transform: translateY(-50%);
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  animation: bp-draw 0.5s both;
+}
+.bp-part[data-side='left'] {
+  right: 46px;
+}
+.bp-part[data-side='right'] {
+  left: 46px;
+}
+/* the leader line back to the part */
+.bp-part::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 44px;
+  border-top: 1px dashed var(--line-2);
+}
+.bp-part[data-side='left']::after {
+  left: 100%;
+}
+.bp-part[data-side='right']::after {
+  right: 100%;
+}
+.bp-part b {
+  font: 700 11px 'Archivo', sans-serif;
+}
+.bp-part span {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--line-2);
+}
+.bp-part[data-on='true'] {
+  background: var(--mark);
+  border-color: var(--mark);
+  color: var(--paper);
+}
+.bp-part[data-on='true'] span {
+  color: var(--paper);
+}
+.bp-part[data-on='true']::after {
+  border-top: 1.5px solid var(--mark);
+}
+
+/* Callout contents */
+.bp-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+  animation: bp-draw 0.45s both;
+}
+.bp-scroll table {
+  margin-top: 0;
+}
+.bp-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bp-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.bp-parts button,
+.bp-open {
+  all: unset;
+  cursor: pointer;
+  padding: 5px 9px;
+  font-size: 11px;
+  border: 1px dashed var(--line-2);
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.bp-parts button[aria-pressed='true'],
+.bp-parts button:hover:not(:disabled),
+.bp-open:hover {
+  background: var(--mark);
+  color: var(--paper);
+  border: 1px solid var(--mark);
+}
+.bp-parts button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.bp-open {
+  align-self: flex-start;
+  border-style: solid;
+  border-color: var(--mark);
+  color: var(--mark);
+  font-weight: 600;
+}
+.bp-open span {
+  font-weight: 400;
+  opacity: 0.7;
+  margin-left: 6px;
+}
+.bp-callout h3 {
+  margin: 0;
+  font: 700 15px 'Archivo', sans-serif;
+  color: #fff;
+}
+.bp-callout h4 {
+  margin: 4px 0 0;
+  font: 700 11px 'Archivo', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--line-2);
+}
+.bp-help {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--line-2);
+}
+.bp-grade {
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+.bp-grade b {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border: 1.5px solid var(--line);
+  font: 900 26px 'Archivo', sans-serif;
+}
+.bp-grade[data-grade='A'] b,
+.bp-grade[data-grade='B'] b {
+  border-color: var(--go);
+  color: var(--go);
+}
+.bp-grade[data-grade='D'] b,
+.bp-grade[data-grade='F'] b {
+  border-color: var(--alert);
+  color: var(--alert);
+}
+.bp-grade figcaption {
+  font-size: 10px;
+  color: var(--line-2);
+}
+.bp-runs,
+.bp-floors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.bp-runs a {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  column-gap: 8px;
+  padding: 5px 4px;
+  color: inherit;
+  text-decoration: none;
+  font-size: 11px;
+  border-bottom: 1px solid var(--line-3);
+}
+.bp-runs a:hover {
+  background: rgba(255, 210, 63, 0.08);
+}
+.bp-runs i {
+  grid-row: span 2;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-2);
+}
+.bp-runs [data-state='success'] i {
+  background: var(--go);
+}
+.bp-runs [data-state='failure'] i {
+  background: var(--alert);
+}
+.bp-runs [data-state='running'] i,
+.bp-runs [data-state='queued'] i {
+  background: var(--mark);
+}
+.bp-runs span,
+.bp-floors span {
+  color: var(--line-2);
+  font-size: 10.5px;
+}
+.bp-floors button {
+  all: unset;
+  cursor: pointer;
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 5px 6px;
+  font-size: 11.5px;
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--line-3);
+}
+.bp-floors button:hover {
+  background: rgba(255, 210, 63, 0.08);
+}
+.bp-floors button[aria-pressed='true'] {
+  border-left-color: var(--mark);
+  background: rgba(255, 210, 63, 0.12);
+}
+.bp-callout .sh-threads {
+  margin: 0;
+}
+.bp-callout code {
+  font-size: 10.5px;
+  color: var(--mark);
+}
+/* a building is open: hide the notes so the callout and drawing have room */
+.bp[data-selected='true'] .bp-notes,
+.bp[data-dissect='true'] .bp-legend {
+  opacity: 0;
+  pointer-events: none;
+}
+.bp-notes,
+.bp-legend {
+  transition: opacity 0.3s;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Canvas, useThree, type CanvasProps } from '@react-three/fiber'
+import { Bloom, EffectComposer, SMAA } from '@react-three/postprocessing'
 import { useApp } from '../store'
 import { TIERS, useTier, type Tier } from './quality'
 
@@ -33,8 +34,10 @@ function Driver({ mode, onSlow }: { mode: Mode; onSlow: () => void }) {
     let cooldown = performance.now() + 6000
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop)
-      const raw = now - last
-      last = now
+      // the first rAF timestamp can be earlier than the performance.now() taken
+      // when the effect ran, so clamp: scene time must never run backwards
+      const raw = Math.max(0, now - last)
+      last = Math.max(last, now)
       const dt = Math.min(0.1, raw / 1000)
       const m = modeRef.current
       if (m === 'pause') return
@@ -93,7 +96,7 @@ export interface SceneCanvasProps extends Omit<CanvasProps, 'children' | 'dpr' |
   alwaysSmooth?: boolean
 }
 
-export function SceneCanvas({ children, effects, maxDpr = 2, alwaysSmooth = false, gl, ...rest }: SceneCanvasProps) {
+export function SceneCanvas({ children, effects, maxDpr = 2, alwaysSmooth = false, gl, onCreated, ...rest }: SceneCanvasProps) {
   const tier = useTier()
   const staged = useApp((s) => !!s.stage)
   const idle = useIdle(20_000)
@@ -109,11 +112,34 @@ export function SceneCanvas({ children, effects, maxDpr = 2, alwaysSmooth = fals
       {...rest}
       dpr={dpr}
       frameloop="never"
+      onCreated={(state) => {
+        if (import.meta.env.DEV) (window as unknown as { __r3f: unknown }).__r3f = state
+        onCreated?.(state)
+      }}
       gl={{ antialias: !withEffects, powerPreference: 'high-performance', stencil: false, ...(typeof gl === 'object' ? gl : {}) }}
     >
       <Driver mode={mode} onSlow={() => setDrop((d) => (d < 2 && base - (d + 1) * 0.25 >= 0.75 ? d + 1 : d))} />
       {children}
       {withEffects ? effects(tier) : null}
     </Canvas>
+  )
+}
+
+/**
+ * The bloom pass every concept shares. No MSAA inside the composer (it turned
+ * the brightest pixels into white blobs); SMAA smooths edges on the high tier,
+ * and laptop tiers render the glow at reduced resolution.
+ */
+export function Glow({ tier, intensity = 0.9, threshold = 0.55, smoothing = 0.35, radius = 0.75 }: { tier: Tier; intensity?: number; threshold?: number; smoothing?: number; radius?: number }) {
+  const bloom = <Bloom mipmapBlur intensity={intensity} luminanceThreshold={threshold} luminanceSmoothing={smoothing} radius={radius} />
+  return tier === 'high' ? (
+    <EffectComposer multisampling={0}>
+      {bloom}
+      <SMAA />
+    </EffectComposer>
+  ) : (
+    <EffectComposer multisampling={0} resolutionScale={0.6}>
+      {bloom}
+    </EffectComposer>
   )
 }
