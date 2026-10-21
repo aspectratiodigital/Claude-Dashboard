@@ -96,10 +96,9 @@
   gap: 8px;
   pointer-events: none;
 }
-/* a project is open: every concept's detail panel is on the right, so move left */
+/* a project is open: every concept's detail panel is on the right, so centre over what's left */
 .app[data-selected='true'] .toasts {
-  left: 18px;
-  transform: none;
+  left: 32%;
 }
 .toast {
   --lv: var(--lv-info);
