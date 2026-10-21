@@ -14,7 +14,7 @@ interface Remote {
   login: string | null
   hasToken: boolean
   psi: boolean
-  projects: Record<string, { name?: string; url?: string; previewUrl?: string; localPort?: number; hidden?: boolean }>
+  projects: Record<string, { name?: string; url?: string; previewUrl?: string; localPort?: number; folder?: string; hidden?: boolean }>
 }
 
 const PERMS = ['contents', 'metadata', 'pull_requests', 'issues', 'actions', 'deployments', 'statuses'].map((p) => `${p}=read`).join('&')
@@ -153,6 +153,7 @@ export function Settings() {
                   <span>Live URL</span>
                   <span>Preview URL</span>
                   <span>Local port</span>
+                  <span>Folder</span>
                   <span>Show</span>
                 </div>
                 {projects.map((p) => {
@@ -173,6 +174,7 @@ export function Settings() {
                         onChange={(e) => setRow(name, { localPort: e.target.value ? Number(e.target.value.replace(/\D/g, '')) : undefined })}
                         aria-label={`${p.name} local port`}
                       />
+                      <input value={r.folder ?? ''} placeholder={'D:\\...'} onChange={(e) => setRow(name, { folder: e.target.value || undefined })} aria-label={`${p.name} folder on this computer`} title="Where this project lives on this computer, for the Claude bar" />
                       <input type="checkbox" checked={!r.hidden} onChange={(e) => setRow(name, { hidden: !e.target.checked })} aria-label={`Show ${p.name}`} />
                     </div>
                   )

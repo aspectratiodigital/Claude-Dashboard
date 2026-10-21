@@ -12,6 +12,8 @@ export interface ProjectOverride {
   url?: string
   previewUrl?: string
   localPort?: number
+  /** the project's folder on this computer, where the Claude bar works */
+  folder?: string
   hidden?: boolean
 }
 
@@ -31,6 +33,8 @@ export interface Settings {
   githubToken?: string
   psiKey?: string
   owner?: string
+  /** full path to the claude command, if it isn't on PATH */
+  claudePath?: string
   projects?: Record<string, ProjectOverride>
 }
 

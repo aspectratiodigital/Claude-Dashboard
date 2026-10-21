@@ -548,29 +548,78 @@ function Huts({ project: p, index }: { project: Project; index: number }) {
 
 function Notes() {
   const selectedId = useApp((s) => s.selectedId)
-  const claude = useClaude(selectedId)
+  const projects = useData((s) => s.projects)
+  const [target, setTarget] = useState<string>('')
+  // follow the building you pick, but let the dropdown override it
+  useEffect(() => {
+    if (selectedId) setTarget(selectedId)
+  }, [selectedId])
+  const claude = useClaude(target || null)
   const [text, setText] = useState('')
   const log = useRef<HTMLOListElement>(null)
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' })
   }, [claude.messages])
+  const linkNote = { checking: '', live: 'Claude Code', missing: 'Not connected', offline: 'Demo' }[claude.link]
   return (
     <section className="bp-notes">
-      <h2>Notes with Claude</h2>
-      <ol ref={log}>
+      <header className="bp-notes-head">
+        <h2>Notes with Claude</h2>
+        {linkNote && <small data-link={claude.link}>{linkNote}</small>}
+      </header>
+      <label className="bp-notes-target">
+        <span>About</span>
+        <select value={target} onChange={(e) => setTarget(e.target.value)} disabled={claude.speaking}>
+          <option value="">All projects</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <ol ref={log} aria-live="polite">
         {claude.messages.map((m) => (
-          <li key={m.id} data-role={m.role}>
+          <li key={m.id} data-role={m.role} data-error={m.error || undefined}>
             <span>{m.role === 'claude' ? 'C' : 'D'}</span>
-            <p>
-              {m.text}
-              {m.streaming && <i className="bp-caret" />}
-            </p>
+            <div>
+              <p>
+                {m.text}
+                {m.streaming && !m.doing && <i className="bp-caret" />}
+              </p>
+              {m.doing && (
+                <p className="bp-doing">
+                  <i className="bp-caret" /> {m.doing}
+                </p>
+              )}
+              {m.asks && (
+                <div className="bp-ask">
+                  <ul>
+                    {m.asks.map((a) => (
+                      <li key={a.rule}>{a.what}</li>
+                    ))}
+                  </ul>
+                  {m.answered ? (
+                    <em>{m.answered === 'allowed' ? 'Allowed' : 'Not allowed'}</em>
+                  ) : (
+                    <div>
+                      <button onClick={() => claude.answer(m, true)} disabled={claude.speaking}>
+                        Allow
+                      </button>
+                      <button onClick={() => claude.answer(m, false)} disabled={claude.speaking}>
+                        No
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </li>
         ))}
       </ol>
       <div className="bp-sugg">
         {SUGGESTIONS.slice(0, 3).map((s) => (
-          <button key={s} onClick={() => claude.send(s)}>
+          <button key={s} onClick={() => claude.send(s)} disabled={claude.speaking}>
             {s}
           </button>
         ))}
@@ -578,12 +627,13 @@ function Notes() {
       <form
         onSubmit={(e) => {
           e.preventDefault()
+          if (claude.speaking) return claude.stop()
           claude.send(text)
           setText('')
         }}
       >
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a note for Claude" aria-label="Message Claude" />
-        <button disabled={!text.trim()}>Send</button>
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder={target ? 'Ask Claude to look at or work on this project' : 'Ask Claude about your sites'} aria-label="Message Claude" />
+        <button disabled={!claude.speaking && !text.trim()}>{claude.speaking ? 'Stop' : 'Send'}</button>
       </form>
     </section>
   )

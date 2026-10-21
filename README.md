@@ -101,6 +101,21 @@ Click a building to select it. Click it again (or press `Enter`) to **open it up
 
 The other six dashboards (Nexus, Helix, Township, Gallery, Arcade, Reef) were retired. Their code is in this repository's history at commit `f6032d0`, and `git checkout f6032d0` brings them back.
 
+## Claude bar
+
+The **Notes with Claude** panel runs your own Claude Code, signed in with your Claude account, so there's no API key or extra billing. Pick a project in **About**, or click its building, and Claude works in that project's folder on this computer. It finds the folder from where you last used Claude Code on that repo, or from **Folder** if you've set one for that project in Settings. With **All projects** it answers from the live state of every site.
+
+Claude can read files and look at git history freely. Before it edits a file or runs a command, the panel shows what it wants to do with **Allow** and **No** buttons. Each project keeps its conversation until you close the app.
+
+To set it up once, in PowerShell:
+
+```powershell
+npm.cmd install -g @anthropic-ai/claude-code
+claude.cmd
+```
+
+Sign in when asked, then close and reopen the dashboard. The panel's corner reads **Claude Code** when it's connected. If `claude` lives somewhere unusual, add `"claudePath": "C:\\path\\to\\claude.exe"` to the settings file.
+
 ## Previews
 
 Open a project and you get a large desktop preview and a phone preview side by side, a page picker, and a switch between the live site and your `localhost` dev server. Click either preview to open it fullscreen at that size, then flip between desktop and mobile, change page, reload or pop it out to your browser.

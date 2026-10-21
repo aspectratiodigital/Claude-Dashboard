@@ -350,7 +350,7 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 180px;
+  max-height: 240px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -380,6 +380,93 @@
 }
 .bp-notes p {
   margin: 0;
+  white-space: pre-wrap;
+}
+.bp-notes li > div {
+  min-width: 0;
+  flex: 1;
+}
+.bp-notes li[data-error] p {
+  color: var(--alert);
+}
+.bp-notes-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.bp-notes-head small {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--line-2);
+}
+.bp-notes-head small[data-link='live'] {
+  color: var(--mark);
+}
+.bp-notes-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: var(--line-2);
+}
+.bp-notes-target select {
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  color: var(--line);
+  background: transparent;
+  border: 1px dashed var(--line-2);
+  padding: 3px 6px;
+}
+.bp-notes-target select option {
+  color: #0c2443;
+}
+.bp-doing {
+  font-size: 11px;
+  color: var(--line-2);
+}
+.bp-doing .bp-caret {
+  margin: 0 4px 0 0;
+}
+.bp-ask {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--mark);
+}
+.bp-ask ul {
+  margin: 0 0 6px;
+  padding-left: 16px;
+  font-size: 11.5px;
+}
+.bp-ask div {
+  display: flex;
+  gap: 6px;
+}
+.bp-ask button {
+  all: unset;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid var(--mark);
+}
+.bp-ask button:first-child {
+  background: var(--mark);
+  color: var(--paper);
+}
+.bp-ask button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.bp-ask em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--line-2);
+}
+.bp-sugg button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .bp-caret {
   display: inline-block;
@@ -716,4 +803,22 @@
 .bp-notes,
 .bp-legend {
   transition: opacity 0.3s;
+}
+.bp-notes-head {
+  margin: 0 0 10px;
+  border-bottom: 1px solid var(--line-2);
+  padding-bottom: 6px;
+}
+.bp-notes-head h2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.bp-notes .bp-ask li {
+  display: list-item;
+}
+@media (max-height: 820px) {
+  .bp-notes ol {
+    max-height: 150px;
+  }
 }

@@ -6,6 +6,7 @@ import { githubAuth, loadConfig, loadSettings, psiKey, saveSettings, type Config
 import { GitHub, listRepos, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
 import { scanLocalSessions, type LocalSession } from './claude.ts'
+import { findClaude, runClaude, stopAll } from './assistant.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
@@ -336,6 +337,17 @@ class Engine {
     return [...map.values()].map((p) => ({ ...p, ...(this.inspected.get(`${id}${p.path}`) ?? {}) })).slice(0, 60)
   }
 
+  /** The project's folder on this computer: a Settings override, else where Claude Code last worked on it. */
+  folderFor(p: Project): string | null {
+    const repoName = p.repo.split('/').pop() ?? p.name
+    const o = this.cfg.projects[repoName] ?? this.cfg.projects[slug(repoName)]
+    if (o?.folder) return o.folder
+    const key = p.repo.toLowerCase()
+    const name = slug(repoName)
+    const hit = this.sessions.filter((s) => (s.repo ? s.repo === key : slug(s.folder) === name)).sort((a, b) => b.updated.localeCompare(a.updated))[0]
+    return hit?.cwd ?? null
+  }
+
   addNote(d: Draft, seeded = false) {
     if (this.notes.some((n) => n.id === d.id)) return
     const note: Note = { ...d, at: d.at ?? now(), read: seeded }
@@ -506,6 +518,9 @@ function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
 
 /** Only the dashboard itself may change settings: no cross-site requests. */
 function sameOrigin(req: IncomingMessage) {
+  // Only answer to the dashboard's own address (guards against DNS rebinding).
+  const host = (req.headers.host ?? '').replace(/:\d+$/, '')
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(host)) return false
   const origin = req.headers.origin
   const site = req.headers['sec-fetch-site']
   if (site && site !== 'same-origin' && site !== 'none') return false
@@ -537,6 +552,32 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       engine.clients.add(res)
       req.on('close', () => engine.clients.delete(res))
       return
+    }
+
+    case 'GET /api/claude': {
+      const exe = await findClaude(loadSettings().claudePath)
+      return json(res, 200, { available: !!exe, path: exe })
+    }
+
+    case 'POST /api/claude': {
+      const body = await readBody(req)
+      const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 8000) : ''
+      if (!prompt) return json(res, 400, { error: 'empty prompt' })
+      const exe = await findClaude(loadSettings().claudePath)
+      if (!exe) return json(res, 503, { error: 'Claude Code is not installed on this computer' })
+      const site = engine.projects.find((x) => x.id === body.projectId) ?? null
+      return runClaude(
+        {
+          exe,
+          prompt,
+          projects: engine.projects,
+          site,
+          folder: site ? engine.folderFor(site) : null,
+          resume: typeof body.resume === 'string' ? body.resume : undefined,
+          allow: Array.isArray(body.allow) ? (body.allow as unknown[]).filter((x): x is string => typeof x === 'string') : undefined,
+        },
+        res,
+      )
     }
 
     case 'POST /api/refresh':
@@ -616,6 +657,7 @@ export function startEngine() {
 
 export function stopEngine() {
   engine.stop()
+  stopAll()
 }
 
 export function jarvisApi(): Plugin {
