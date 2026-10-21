@@ -9,10 +9,10 @@ import { scanLocalSessions, type LocalSession } from './claude.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
-// The local API behind every concept. It runs inside the Vite dev server (and
-// `vite preview`), polls GitHub, checks your live sites, reads your local
-// Claude Code sessions, turns changes into notifications and streams one
-// snapshot to the browser over Server-Sent Events.
+// The local API behind the dashboard. It runs inside the Vite dev server,
+// `vite preview` and the desktop app (server/app.ts), polls GitHub, checks
+// your live sites, reads your local Claude Code sessions, turns changes into
+// notifications and streams one snapshot to the browser over Server-Sent Events.
 
 const STATE_FILE = path.join(DATA_DIR, 'state.json')
 const NOTES_FILE = path.join(DATA_DIR, 'notes.json')
@@ -519,7 +519,7 @@ function sameOrigin(req: IncomingMessage) {
 
 const NOTE_KINDS: NoteKind[] = ['build', 'build-ok', 'build-fail', 'deploying', 'deployed', 'deploy-fail', 'issue', 'pr', 'merged', 'review', 'push', 'claude', 'down', 'up', 'perf']
 
-async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
+export async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
   const url = new URL(req.url ?? '/', 'http://localhost')
   if (!url.pathname.startsWith('/api/')) return next()
   engine.start()
@@ -608,6 +608,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, next: () => voi
     }
   }
   return json(res, 404, { error: `no route ${route}` })
+}
+
+export function startEngine() {
+  engine.start()
+}
+
+export function stopEngine() {
+  engine.stop()
 }
 
 export function jarvisApi(): Plugin {

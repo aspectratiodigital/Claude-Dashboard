@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useData } from '../data/store'
 import { STATUS_LABEL } from '../data/derive'
-import { CONCEPTS, useApp } from '../store'
+import { useApp } from '../store'
 import { enterStage, sourcesFor } from './Preview'
 
 interface Action {
@@ -11,7 +11,7 @@ interface Action {
   run: () => void
 }
 
-// Ctrl/Cmd K: jump to any project, open its fullscreen previews, switch concept.
+// Ctrl/Cmd K: jump to any project, open its fullscreen previews.
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen)
   const setOpen = useApp((s) => s.setPalette)
@@ -32,7 +32,6 @@ export function CommandPalette() {
       }
     }
     out.push(
-      ...CONCEPTS.map((c) => ({ id: `concept-${c.id}`, label: `Switch to ${c.name}`, hint: c.blurb, run: () => st.setConcept(c.id) })),
       { id: 'notes', label: 'Show notifications', hint: 'N', run: () => st.setNotes(true) },
       { id: 'settings', label: 'Settings: connect GitHub, links, quality', hint: '', run: () => st.setSettings(true) },
       { id: 'refresh', label: 'Refresh data now', hint: '', run: () => useData.getState().refresh() },
@@ -65,7 +64,7 @@ export function CommandPalette() {
         <input
           ref={input}
           value={q}
-          placeholder="Jump to a project, a preview or a concept"
+          placeholder="Jump to a project or a preview"
           onChange={(e) => {
             setQ(e.target.value)
             setI(0)

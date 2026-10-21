@@ -1,5 +1,5 @@
 /* Shared shell UI: tray, toasts, notification drawer, settings, project sheet.
-   Each concept sets the --ui-* tokens on .app[data-concept] (see app.css). */
+   It reads the --ui-* tokens set on .app (see app.css). */
 
 .tray,
 .toasts,
@@ -80,7 +80,7 @@
 }
 
 /* --- Toasts ------------------------------------------------------------------ */
-/* top centre, under the concept switcher: clear of every concept's side panels */
+/* top centre: clear of the side panels */
 .toasts {
   position: absolute;
   top: 64px;
@@ -96,7 +96,7 @@
   gap: 8px;
   pointer-events: none;
 }
-/* a project is open: every concept's detail panel is on the right, so centre over what's left */
+/* a project is open: the detail panel is on the right, so centre over what's left */
 .app[data-selected='true'] .toasts {
   left: 32%;
 }

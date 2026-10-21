@@ -4,3 +4,5 @@ dist
 .DS_Store
 screenshots-tmp
 .jarvis
+dist-electron
+release

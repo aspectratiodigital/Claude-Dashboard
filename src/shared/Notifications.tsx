@@ -177,7 +177,7 @@ export function NotesDrawer() {
       </div>
       <footer className="drawer-test">
         <h3>Preview a notification</h3>
-        <p>Fire any kind at a project to see how this concept shows it.</p>
+        <p>Fire any kind at a project to see how the dashboard shows it.</p>
         <select value={projectId} onChange={(e) => setTarget(e.target.value)} aria-label="Project">
           {projects.map((p) => (
             <option key={p.id} value={p.id}>

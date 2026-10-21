@@ -1,35 +1,8 @@
-@import '@fontsource/sora/300.css';
-@import '@fontsource/sora/400.css';
-@import '@fontsource/sora/600.css';
-@import '@fontsource/sora/700.css';
-@import '@fontsource/jetbrains-mono/400.css';
-@import '@fontsource/jetbrains-mono/600.css';
-@import '@fontsource/instrument-serif/400.css';
-@import '@fontsource/instrument-serif/400-italic.css';
-@import '@fontsource/manrope/400.css';
-@import '@fontsource/manrope/600.css';
 @import '@fontsource/archivo/400.css';
 @import '@fontsource/archivo/700.css';
 @import '@fontsource/archivo/900.css';
 @import '@fontsource/ibm-plex-mono/400.css';
 @import '@fontsource/ibm-plex-mono/500.css';
-@import '@fontsource/fredoka/500.css';
-@import '@fontsource/fredoka/600.css';
-@import '@fontsource/fredoka/700.css';
-@import '@fontsource/nunito/400.css';
-@import '@fontsource/nunito/600.css';
-@import '@fontsource/nunito/800.css';
-@import '@fontsource/bodoni-moda/400.css';
-@import '@fontsource/bodoni-moda/400-italic.css';
-@import '@fontsource/bodoni-moda/600.css';
-@import '@fontsource/jost/300.css';
-@import '@fontsource/jost/400.css';
-@import '@fontsource/jost/500.css';
-@import '@fontsource/press-start-2p/400.css';
-@import '@fontsource/vt323/400.css';
-@import '@fontsource/outfit/300.css';
-@import '@fontsource/outfit/400.css';
-@import '@fontsource/outfit/600.css';
 
 *,
 *::before,
@@ -43,51 +16,13 @@ button {
   font: inherit;
 }
 
-/* Design tokens. Every concept sets its own; shared UI (tray, toasts,
-   drawer, settings, previews, palette) reads only these. */
+/* Design tokens: shared UI (tray, toasts, drawer, settings, previews,
+   palette) reads only these. */
 .app {
   position: fixed;
   inset: 0;
   /* clip, not hidden: nothing (focus, scrollIntoView) can scroll the app sideways */
   overflow: clip;
-  --ui-bg: rgba(6, 16, 28, 0.72);
-  --ui-solid: #07111d;
-  --ui-fg: #dff6ff;
-  --ui-muted: #7ea3b6;
-  --ui-line: rgba(120, 220, 255, 0.18);
-  --ui-ac: #5ce1ff;
-  --ui-ac-fg: #03121c;
-  --ui-font: 'Sora', system-ui, sans-serif;
-  --ui-display: 'Sora', system-ui, sans-serif;
-  --ui-mono: 'JetBrains Mono', monospace;
-  --ui-radius: 14px;
-  --ui-blur: 16px;
-  --lv-info: #7aa7ff;
-  --lv-progress: #ffb547;
-  --lv-success: #3ddc97;
-  --lv-warning: #ffcc4d;
-  --lv-critical: #ff4d6a;
-  transition: background 0.6s;
-}
-.app[data-concept='helix'] {
-  --ui-bg: rgba(255, 255, 255, 0.7);
-  --ui-solid: #f7f8fc;
-  --ui-fg: #1b1e2e;
-  --ui-muted: #6a6f85;
-  --ui-line: rgba(27, 30, 46, 0.1);
-  --ui-ac: #2e4bff;
-  --ui-ac-fg: #fff;
-  --ui-font: 'Manrope', system-ui, sans-serif;
-  --ui-display: 'Instrument Serif', serif;
-  --ui-radius: 16px;
-  --ui-blur: 18px;
-  --lv-success: #1f9d6b;
-  --lv-progress: #d98a00;
-  --lv-warning: #c98a00;
-  --lv-critical: #e5484d;
-  --lv-info: #2e4bff;
-}
-.app[data-concept='blueprint'] {
   --ui-bg: #123a6b;
   --ui-solid: #123a6b;
   --ui-fg: #dbe8ff;
@@ -100,82 +35,11 @@ button {
   --ui-mono: 'IBM Plex Mono', monospace;
   --ui-radius: 0px;
   --ui-blur: 0px;
-  --lv-success: #7dffb0;
+  --lv-info: #7aa7ff;
   --lv-progress: #ffd23f;
+  --lv-success: #7dffb0;
+  --lv-warning: #ffcc4d;
   --lv-critical: #ff6b6b;
-}
-.app[data-concept='township'] {
-  --ui-bg: rgba(255, 251, 243, 0.94);
-  --ui-solid: #fffaf1;
-  --ui-fg: #3b2f2a;
-  --ui-muted: #8a786b;
-  --ui-line: rgba(59, 47, 42, 0.12);
-  --ui-ac: #ff7a59;
-  --ui-ac-fg: #fff;
-  --ui-font: 'Nunito', system-ui, sans-serif;
-  --ui-display: 'Fredoka', 'Nunito', sans-serif;
-  --ui-radius: 18px;
-  --ui-blur: 0px;
-  --lv-success: #36b37e;
-  --lv-progress: #f5a524;
-  --lv-warning: #e8a317;
-  --lv-critical: #e5484d;
-  --lv-info: #5b8def;
-}
-.app[data-concept='gallery'] {
-  --ui-bg: rgba(250, 249, 246, 0.95);
-  --ui-solid: #faf9f6;
-  --ui-fg: #151515;
-  --ui-muted: #7a766e;
-  --ui-line: rgba(21, 21, 21, 0.12);
-  --ui-ac: #151515;
-  --ui-ac-fg: #faf9f6;
-  --ui-font: 'Jost', system-ui, sans-serif;
-  --ui-display: 'Bodoni Moda', serif;
-  --ui-radius: 2px;
-  --ui-blur: 0px;
-  --lv-success: #2f7d5b;
-  --lv-progress: #b07a1a;
-  --lv-warning: #b07a1a;
-  --lv-critical: #b3261e;
-  --lv-info: #3c5a99;
-}
-.app[data-concept='arcade'] {
-  --ui-bg: rgba(22, 4, 40, 0.88);
-  --ui-solid: #160428;
-  --ui-fg: #ffe9ff;
-  --ui-muted: #c18fe0;
-  --ui-line: rgba(255, 61, 240, 0.4);
-  --ui-ac: #ff3df0;
-  --ui-ac-fg: #160428;
-  --ui-font: 'VT323', monospace;
-  --ui-display: 'Press Start 2P', monospace;
-  --ui-mono: 'VT323', monospace;
-  --ui-radius: 0px;
-  --ui-blur: 0px;
-  --lv-info: #3df5ff;
-  --lv-progress: #ffe53d;
-  --lv-success: #3dff8b;
-  --lv-warning: #ff9d3d;
-  --lv-critical: #ff3d5e;
-}
-.app[data-concept='reef'] {
-  --ui-bg: rgba(2, 32, 42, 0.62);
-  --ui-solid: #04242f;
-  --ui-fg: #dcfbff;
-  --ui-muted: #84bdc8;
-  --ui-line: rgba(120, 255, 240, 0.16);
-  --ui-ac: #5fffe0;
-  --ui-ac-fg: #00262b;
-  --ui-font: 'Outfit', system-ui, sans-serif;
-  --ui-display: 'Outfit', system-ui, sans-serif;
-  --ui-radius: 20px;
-  --ui-blur: 14px;
-  --lv-info: #7fc8ff;
-  --lv-progress: #ffd36e;
-  --lv-success: #6dffb5;
-  --lv-warning: #ffbe6e;
-  --lv-critical: #ff6e8a;
 }
 
 .boot {
@@ -202,158 +66,6 @@ button {
   top: 0;
   visibility: hidden;
   will-change: transform;
-}
-
-/* Concept switcher ------------------------------------------------------ */
-.switcher {
-  position: absolute;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  background: var(--ui-bg);
-  box-shadow: inset 0 0 0 1px var(--ui-line);
-  border-radius: calc(var(--ui-radius) + 3px);
-  backdrop-filter: blur(var(--ui-blur)) saturate(1.4);
-  font-family: var(--ui-font);
-  transition: background 0.6s, border-radius 0.6s;
-}
-.switcher button {
-  all: unset;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  font-size: 12.5px;
-  color: var(--ui-fg);
-  border-radius: var(--ui-radius);
-  white-space: nowrap;
-  transition: background 0.25s, color 0.25s;
-}
-.app[data-concept='arcade'] .switcher button {
-  font-size: 17px;
-  padding: 4px 9px;
-}
-.switcher button:hover {
-  background: color-mix(in srgb, var(--ui-ac) 16%, transparent);
-}
-.switcher button[aria-pressed='true'] {
-  background: var(--ui-ac);
-  color: var(--ui-ac-fg);
-}
-.switcher button:focus-visible {
-  outline: 2px solid var(--ui-ac);
-  outline-offset: 2px;
-}
-.switcher kbd {
-  font: 10px/1 var(--ui-font);
-  opacity: 0.55;
-}
-.switcher-k {
-  margin-left: 4px;
-  box-shadow: -1px 0 0 var(--ui-line);
-  border-radius: 0 var(--ui-radius) var(--ui-radius) 0 !important;
-}
-@media (max-width: 1280px) {
-  .switcher button:not([aria-pressed='true']) span {
-    display: none;
-  }
-}
-
-/* Concept wipe ----------------------------------------------------------- */
-.wipe {
-  position: absolute;
-  inset: 0;
-  z-index: 90;
-  pointer-events: none;
-  display: grid;
-  place-items: center;
-  --wc: #03070d;
-  --wt: #5ce1ff;
-  --wf: 'Sora';
-  background: var(--wc);
-  clip-path: circle(0% at 50% 50%);
-  font: 700 clamp(48px, 9vw, 140px) / 1 var(--wf);
-  color: var(--wt);
-  letter-spacing: -0.03em;
-}
-.wipe[data-to='helix'] {
-  --wc: #e4e7f1;
-  --wt: #2e4bff;
-  --wf: 'Instrument Serif';
-}
-.wipe[data-to='blueprint'] {
-  --wc: #164a86;
-  --wt: #ffffff;
-  --wf: 'Archivo';
-}
-.wipe[data-to='township'] {
-  --wc: #9fd8f0;
-  --wt: #fffaf1;
-  --wf: 'Fredoka';
-}
-.wipe[data-to='gallery'] {
-  --wc: #f4f2ed;
-  --wt: #151515;
-  --wf: 'Bodoni Moda';
-}
-.wipe[data-to='arcade'] {
-  --wc: #12021f;
-  --wt: #ff3df0;
-  --wf: 'Press Start 2P';
-}
-.wipe[data-to='arcade'] span {
-  font-size: 0.5em;
-}
-.wipe[data-to='reef'] {
-  --wc: #021820;
-  --wt: #5fffe0;
-  --wf: 'Outfit';
-}
-.wipe span {
-  opacity: 0;
-  transform: scale(0.9);
-}
-.wipe-cover {
-  animation: wipe-cover 0.42s cubic-bezier(0.7, 0, 0.3, 1) forwards;
-}
-.wipe-cover span {
-  animation: wipe-word 0.42s 0.1s ease-out forwards;
-}
-.wipe-reveal {
-  clip-path: circle(150% at 50% 50%);
-  animation: wipe-reveal 0.68s 0.12s cubic-bezier(0.7, 0, 0.3, 1) forwards;
-}
-.wipe-reveal span {
-  opacity: 1;
-  transform: none;
-  animation: wipe-word-out 0.4s ease-in forwards;
-}
-@keyframes wipe-cover {
-  to {
-    clip-path: circle(150% at 50% 50%);
-  }
-}
-@keyframes wipe-reveal {
-  to {
-    clip-path: circle(0% at 50% 100%);
-  }
-}
-@keyframes wipe-word {
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes wipe-word-out {
-  to {
-    opacity: 0;
-    transform: scale(1.08);
-  }
 }
 
 /* Palette ---------------------------------------------------------------- */
@@ -432,7 +144,7 @@ button {
   left: 12px;
   bottom: 12px;
   z-index: 95;
-  font: 12px/1 'JetBrains Mono', monospace;
+  font: 12px/1 'IBM Plex Mono', monospace;
   color: #7dff9b;
   background: rgba(0, 0, 0, 0.65);
   padding: 6px 8px;

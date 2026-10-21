@@ -3,8 +3,9 @@ import path from 'node:path'
 
 // Everything the dashboard remembers locally lives in .jarvis/ (gitignored):
 // settings, the last project state, notifications, audits and screenshots.
-export const ROOT = process.cwd()
-export const DATA_DIR = path.join(ROOT, '.jarvis')
+// The desktop app points JARVIS_DATA_DIR at its own user-data folder instead.
+export const ROOT = process.env.JARVIS_ROOT || process.cwd()
+export const DATA_DIR = process.env.JARVIS_DATA_DIR || path.join(ROOT, '.jarvis')
 export const SHOTS_DIR = path.join(DATA_DIR, 'shots')
 
 export function ensureDirs() {
