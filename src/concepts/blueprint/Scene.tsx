@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Html, OrthographicCamera } from '@react-three/drei'
+import { OrthographicCamera } from '@react-three/drei'
+import { Anchor } from '../../shared/Labels'
 import * as THREE from 'three'
 import { SITES } from '../../data/mock'
 import { useApp } from '../../store'
@@ -194,14 +195,7 @@ function Building({ lot, index }: { lot: (typeof LOTS)[number]; index: number })
             <Crane height={top + 1.2} />
           </group>
         )}
-        <Html position={[0, top + 0.9, 0]} center className="bp-tag-wrap" zIndexRange={[5, 0]}>
-          <div className="bp-tag" data-active={active} data-status={lot.site.status}>
-            <b>{lot.site.name}</b>
-            <span>
-              {lot.site.commitsThisWeek} commits · {lot.site.visitors7d.toLocaleString()} visits
-            </span>
-          </div>
-        </Html>
+        <Anchor id={`lbl-bp-${lot.site.id}`} position={[0, top + 0.9, 0]} />
       </group>
     </group>
   )
@@ -260,8 +254,8 @@ function Rig({ turn }: { turn: MutableRefObject<number> }) {
       if (lot) {
         // park the building left of centre so the detail callout doesn't cover it
         const a = az.current
-        panGoal.current.set(lot.x + Math.sin(a) * 2.3, lot.floors * lot.floorH * 0.4, lot.z - Math.cos(a) * 2.3)
-        zoomGoal.current = 92
+        panGoal.current.set(lot.x + Math.sin(a) * 1.3, lot.floors * lot.floorH * 0.4, lot.z - Math.cos(a) * 1.3)
+        zoomGoal.current = 78
       } else {
         panGoal.current.set(0, 0, 0)
         zoomGoal.current = 46

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Billboard, Html } from '@react-three/drei'
+import { Billboard } from '@react-three/drei'
+import { Anchor } from '../../shared/Labels'
 import * as THREE from 'three'
 import { SITES } from '../../data/mock'
 import { useApp, prefersReducedMotion } from '../../store'
@@ -189,11 +190,7 @@ function Planet({ p, index, clock }: { p: (typeof PLANETS)[number]; index: numbe
             )
           })}
         </group>
-        <Html center position={[0, p.size + 0.38, 0]} className="ob-label-wrap" zIndexRange={[5, 0]}>
-          <div className="ob-label" data-active={active} data-status={p.site.status}>
-            {p.site.name}
-          </div>
-        </Html>
+        <Anchor id={`lbl-ob-${p.site.id}`} position={[0, p.size + 0.38, 0]} />
       </group>
     </group>
   )
@@ -238,12 +235,12 @@ function Stars() {
 
 function Belt({ clock }: { clock: Clock }) {
   const ref = useRef<THREE.InstancedMesh>(null!)
-  const n = 900
+  const n = 1400
   useEffect(() => {
     const m = new THREE.Object3D()
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2
-      const r = 8.02 + (Math.random() - 0.5) * 0.6 + Math.sin(a * 5) * 0.08
+      const r = 14.3 + (Math.random() - 0.5) * 1.1 + Math.sin(a * 5) * 0.12
       m.position.set(Math.cos(a) * r, (Math.random() - 0.5) * 0.25, Math.sin(a) * r)
       m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3)
       m.scale.setScalar(0.015 + Math.pow(Math.random(), 3) * 0.06)
@@ -253,7 +250,7 @@ function Belt({ clock }: { clock: Clock }) {
     ref.current.instanceMatrix.needsUpdate = true
   }, [])
   useFrame(() => {
-    ref.current.rotation.y = clock.current * 0.018
+    ref.current.rotation.y = clock.current * 0.01
   })
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, n]}>
@@ -286,7 +283,7 @@ function Rig({ clock, warp }: { clock: Clock; warp: MutableRefObject<number> }) 
     const wheel = (e: WheelEvent) => {
       e.preventDefault()
       const sel = useApp.getState().selectedId
-      const [lo, hi] = sel ? [1.6, 9] : [8, 40]
+      const [lo, hi] = sel ? [1.6, 12] : [8, 48]
       goal.current.dist = Math.max(lo, Math.min(hi, goal.current.dist * (1 + e.deltaY * 0.0012)))
     }
     el.addEventListener('pointerdown', down)
@@ -307,7 +304,7 @@ function Rig({ clock, warp }: { clock: Clock; warp: MutableRefObject<number> }) 
       useApp.subscribe((s, prev) => {
         if (s.selectedId === prev.selectedId) return
         const p = PLANETS.find((x) => x.site.id === s.selectedId)
-        goal.current.dist = p ? 1.6 + p.size * 7 : 22
+        goal.current.dist = p ? 2.5 + p.size * 10 : 24
         if (!p) goal.current.pol = 1.08
         else goal.current.pol = 1.2
       }),

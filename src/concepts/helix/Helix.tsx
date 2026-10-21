@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { useAdaptiveDpr } from '../../shared/Adaptive'
 import { HelixScene, HX_STATUS } from './Scene'
 import { PROJECTS, SITES, STATUS_LABEL, siteById } from '../../data/mock'
 import { useApp } from '../../store'
@@ -9,6 +10,7 @@ import { useClaude, SUGGESTIONS } from '../../shared/useClaude'
 import './helix.css'
 
 export default function Helix() {
+  const [dpr, monitor] = useAdaptiveDpr(1.75)
   const pointer = usePointer()
   const selectedId = useApp((s) => s.selectedId)
   const select = useApp((s) => s.select)
@@ -101,11 +103,12 @@ export default function Helix() {
     <div className="hx" data-drawer={!!selectedId}>
       <Canvas
         className="hx-canvas"
-        dpr={[1, 1.75]}
+        dpr={dpr}
         flat
         camera={{ position: [-1.9, 0, 15], fov: 38 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
       >
+        {monitor}
         <HelixScene scroll={scroll} pointer={pointer} onPick={onPick} drawer={!!selectedId} />
       </Canvas>
 

@@ -44,12 +44,17 @@ function compose(prompt: string, siteId: string | null): string {
 
 let nextId = 1
 
+function partOfDay() {
+  const h = new Date().getHours()
+  return h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening'
+}
+
 export function useClaude(siteId: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: nextId++,
       role: 'claude',
-      text: 'Good evening, Dylan. Volt Gyms has a failing check, everything else is healthy. Ask me anything.',
+      text: `Good ${partOfDay()}, Dylan. Volt Gyms has a failing check, everything else is healthy. Ask me anything.`,
     },
   ])
   const [speaking, setSpeaking] = useState(false)

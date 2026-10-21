@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { useAdaptiveDpr } from '../../shared/Adaptive'
 import { BlueprintScene, LOTS } from './Scene'
 import { siteById, STATUS_LABEL, SITES, totals } from '../../data/mock'
 import { useApp } from '../../store'
 import { useClaude, SUGGESTIONS } from '../../shared/useClaude'
 import { SitePreview } from '../../shared/SitePreview'
 import { useClock } from '../../shared/bits'
+import { LabelLayer } from '../../shared/Labels'
 import './blueprint.css'
 
 const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 const ROWS = ['1', '2', '3', '4', '5']
 
 export default function Blueprint() {
+  const [dpr, monitor] = useAdaptiveDpr(2)
   const selectedId = useApp((s) => s.selectedId)
   const turn = useRef(0)
   const [heading, setHeading] = useState(0)
@@ -33,9 +36,16 @@ export default function Blueprint() {
 
   return (
     <div className="bp" data-selected={!!selectedId}>
-      <Canvas className="bp-canvas" dpr={[1, 2]} gl={{ antialias: true, powerPreference: 'high-performance' }} flat>
+      <Canvas className="bp-canvas" dpr={dpr} gl={{ antialias: true, powerPreference: 'high-performance' }} flat>
+        {monitor}
         <BlueprintScene turn={turn} />
       </Canvas>
+
+      <LabelLayer>
+        {LOTS.map((l) => (
+          <Tag key={l.site.id} id={l.site.id} />
+        ))}
+      </LabelLayer>
 
       <div className="bp-sheet" aria-hidden>
         <div className="bp-ruler top">
@@ -70,6 +80,21 @@ export default function Blueprint() {
       {selectedId && <Callout key={selectedId} id={selectedId} />}
       <Notes />
       <TitleBlock />
+    </div>
+  )
+}
+
+function Tag({ id }: { id: string }) {
+  const site = siteById(id)!
+  const active = useApp((s) => s.hoveredId === id || s.selectedId === id)
+  return (
+    <div id={`lbl-bp-${id}`}>
+      <div className="bp-tag" data-active={active} data-status={site.status}>
+        <b>{site.name}</b>
+        <span>
+          {site.commitsThisWeek} commits, {site.visitors7d.toLocaleString()} visits
+        </span>
+      </div>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { useAdaptiveDpr } from '../../shared/Adaptive'
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing'
 import { Vector2 } from 'three'
 import { JarvisScene, STATUS_COLOR } from './Scene'
@@ -8,11 +9,13 @@ import { useApp } from '../../store'
 import { useClaude, SUGGESTIONS } from '../../shared/useClaude'
 import { CountUp, Gauge, Sparkline, useClock, usePointer, useTilt } from '../../shared/bits'
 import { SitePreview } from '../../shared/SitePreview'
+import { LabelLayer } from '../../shared/Labels'
 import './jarvis.css'
 
 const caOffset = new Vector2(0.0006, 0.0004)
 
 export default function Jarvis() {
+  const [dpr, monitor] = useAdaptiveDpr(2)
   const selectedId = useApp((s) => s.selectedId)
   const pointer = usePointer()
   const claude = useClaude(selectedId)
@@ -21,11 +24,12 @@ export default function Jarvis() {
     <div className="jv">
       <Canvas
         className="jv-canvas"
-        dpr={[1, 2]}
+        dpr={dpr}
         camera={{ position: [0, 1.3, 12.5], fov: 42 }}
         gl={{ antialias: false, powerPreference: 'high-performance' }}
         onPointerMissed={() => useApp.getState().select(null)}
       >
+        {monitor}
         <JarvisScene level={claude.level} pointer={pointer} />
         <EffectComposer multisampling={4}>
           <Bloom mipmapBlur intensity={1.15} luminanceThreshold={0.18} luminanceSmoothing={0.3} />
@@ -34,6 +38,11 @@ export default function Jarvis() {
         </EffectComposer>
       </Canvas>
 
+      <LabelLayer>
+        {SITES.map((s) => (
+          <NodeLabel key={s.id} id={s.id} />
+        ))}
+      </LabelLayer>
       <div className="jv-scan" aria-hidden />
       <Corners />
 
@@ -45,6 +54,19 @@ export default function Jarvis() {
         </aside>
         <aside className="jv-col jv-right">{selectedId ? <Detail key={selectedId} id={selectedId} /> : <Projects />}</aside>
         <Console claude={claude} />
+      </div>
+    </div>
+  )
+}
+
+function NodeLabel({ id }: { id: string }) {
+  const site = siteById(id)!
+  const active = useApp((s) => s.hoveredId === id || s.selectedId === id)
+  return (
+    <div id={`lbl-jv-${id}`}>
+      <div className="jv-label" data-active={active} data-status={site.status}>
+        <b>{site.name}</b>
+        <span>{site.domain}</span>
       </div>
     </div>
   )

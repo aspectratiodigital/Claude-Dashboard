@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { useAdaptiveDpr } from '../../shared/Adaptive'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import { OrbitScene, PLANETS } from './Scene'
 import { STATUS_LABEL, siteById, totals, SITES } from '../../data/mock'
@@ -7,9 +8,11 @@ import { useApp } from '../../store'
 import { useClaude, SUGGESTIONS } from '../../shared/useClaude'
 import { SitePreview } from '../../shared/SitePreview'
 import { CountUp } from '../../shared/bits'
+import { LabelLayer } from '../../shared/Labels'
 import './orbit.css'
 
 export default function Orbit() {
+  const [dpr, monitor] = useAdaptiveDpr(2)
   const selectedId = useApp((s) => s.selectedId)
   const claude = useClaude(selectedId)
   const warp = useRef(1)
@@ -18,16 +21,23 @@ export default function Orbit() {
     <div className="ob" data-selected={!!selectedId}>
       <Canvas
         className="ob-canvas"
-        dpr={[1, 2]}
+        dpr={dpr}
         camera={{ position: [0, 12, 30], fov: 45, near: 0.05, far: 400 }}
         gl={{ antialias: false, powerPreference: 'high-performance' }}
       >
+        {monitor}
         <OrbitScene level={claude.level} warp={warp} />
         <EffectComposer multisampling={4}>
           <Bloom mipmapBlur intensity={0.9} luminanceThreshold={0.9} luminanceSmoothing={0.2} />
           <Vignette darkness={0.6} offset={0.3} />
         </EffectComposer>
       </Canvas>
+
+      <LabelLayer>
+        {PLANETS.map((p) => (
+          <PlanetLabel key={p.site.id} id={p.site.id} />
+        ))}
+      </LabelLayer>
 
       <header className="ob-top">
         <div className="ob-mark">
@@ -47,6 +57,18 @@ export default function Orbit() {
       {selectedId && <Dossier key={selectedId} id={selectedId} />}
       <Warp warp={warp} />
       <Transmission claude={claude} />
+    </div>
+  )
+}
+
+function PlanetLabel({ id }: { id: string }) {
+  const site = siteById(id)!
+  const active = useApp((s) => s.hoveredId === id || s.selectedId === id)
+  return (
+    <div id={`lbl-ob-${id}`}>
+      <div className="ob-label" data-active={active} data-status={site.status}>
+        {site.name}
+      </div>
     </div>
   )
 }

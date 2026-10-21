@@ -83,6 +83,22 @@ button {
   letter-spacing: 0.08em;
 }
 
+/* 3D-anchored labels (see shared/Labels.tsx) */
+.label-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.label-layer > * {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  will-change: transform;
+}
+
 /* Concept switcher ------------------------------------------------------ */
 .switcher {
   position: absolute;

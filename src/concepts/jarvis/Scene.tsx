@@ -1,6 +1,7 @@
 import { useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Billboard, Html, Line } from '@react-three/drei'
+import { Billboard, Line } from '@react-three/drei'
+import { Anchor } from '../../shared/Labels'
 import * as THREE from 'three'
 import { SITES, type Site, type SiteStatus } from '../../data/mock'
 import { useApp, prefersReducedMotion } from '../../store'
@@ -250,12 +251,7 @@ function Node({ site, index, total, theta }: { site: Site; index: number; total:
           <mesh visible={false}>
             <circleGeometry args={[0.5, 12]} />
           </mesh>
-          <Html center position={[0, -0.6, 0]} className="jv-label-wrap" zIndexRange={[10, 0]}>
-            <div className="jv-label" data-active={active} data-status={site.status}>
-              <b>{site.name}</b>
-              <span>{site.domain}</span>
-            </div>
-          </Html>
+          <Anchor id={`lbl-jv-${site.id}`} position={[0, -0.62, 0]} />
         </group>
       </Billboard>
     </group>
