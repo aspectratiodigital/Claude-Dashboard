@@ -384,7 +384,7 @@ function Colony({ site, impulses, kit, tier }: { site: Site; impulses: Impulses;
     () => ({
       polyp: new THREE.MeshBasicMaterial({ toneMapped: false }),
       bubble: new THREE.ShaderMaterial({ vertexShader: shellVert, fragmentShader: shellFrag, uniforms: { uColor: { value: new THREE.Color('#c8f6ff') }, uAlpha: { value: 1 }, uCore: { value: 0.05 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
-      jelly: new THREE.ShaderMaterial({ vertexShader: shellVert, fragmentShader: shellFrag, uniforms: { uColor: { value: new THREE.Color('#7dffe8') }, uAlpha: { value: 1.4 }, uCore: { value: 0.15 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+      jelly: new THREE.ShaderMaterial({ vertexShader: shellVert, fragmentShader: shellFrag, uniforms: { uColor: { value: new THREE.Color('#ff9ff0') }, uAlpha: { value: 1.3 }, uCore: { value: 0.12 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
       pearl: new THREE.MeshBasicMaterial({ color: new THREE.Color('#fff4fb').multiplyScalar(1.6), toneMapped: false }),
       ring: new THREE.ShaderMaterial({ vertexShader: quadVert, fragmentShader: ringFrag, uniforms: { uK: { value: 1 }, uColor: { value: new THREE.Color('#fff') } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
       beam: new THREE.ShaderMaterial({ vertexShader: quadVert, fragmentShader: beamFrag, uniforms: { uColor: { value: new THREE.Color('#fff2c4') }, uAlpha: { value: 1 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
@@ -574,9 +574,9 @@ function Colony({ site, impulses, kit, tier }: { site: Site; impulses: Impulses;
         <mesh ref={bell} material={mats.jelly} raycast={noRay}>
           <sphereGeometry args={[0.32, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2]} />
         </mesh>
-        {Array.from({ length: 6 }, (_, i) => (
-          <mesh key={i} material={mats.jelly} position={[Math.cos(i) * 0.16, -0.32, Math.sin(i) * 0.16]} raycast={noRay}>
-            <cylinderGeometry args={[0.012, 0.004, 0.62, 4, 1, true]} />
+        {Array.from({ length: 8 }, (_, i) => (
+          <mesh key={i} material={mats.jelly} position={[Math.cos((i / 8) * Math.PI * 2) * 0.2, -0.45, Math.sin((i / 8) * Math.PI * 2) * 0.2]} rotation={[Math.sin(i * 1.7) * 0.15, 0, Math.cos(i * 2.3) * 0.15]} raycast={noRay}>
+            <cylinderGeometry args={[0.016, 0.004, 0.9, 4, 1, true]} />
           </mesh>
         ))}
       </group>
@@ -802,7 +802,9 @@ function Environment({ radius, tier }: { radius: number; tier: Tier }) {
   const sky = useRef<THREE.Mesh>(null!)
   const time = useMemo(() => ({ value: 0 }), [])
   const floorGeo = useMemo(() => {
-    const g = new THREE.PlaneGeometry(140, 140, tier === 'battery' ? 90 : 160, tier === 'battery' ? 90 : 160)
+    // the dunes are gentle, so laptop tiers get away with a much coarser floor
+    const seg = tier === 'high' ? 160 : tier === 'balanced' ? 100 : 70
+    const g = new THREE.PlaneGeometry(140, 140, seg, seg)
     g.rotateX(-Math.PI / 2)
     const pos = g.attributes.position
     for (let i = 0; i < pos.count; i++) pos.setY(i, seabed(pos.getX(i), pos.getZ(i)))
@@ -811,7 +813,7 @@ function Environment({ radius, tier }: { radius: number; tier: Tier }) {
   }, [tier])
   const mats = useMemo(
     () => ({
-      floor: new THREE.ShaderMaterial({ vertexShader: floorVert, fragmentShader: floorFrag, uniforms: { uTime: time, uFog: { value: FOG }, uRich: { value: tier === 'battery' ? 0 : 1 } } }),
+      floor: new THREE.ShaderMaterial({ vertexShader: floorVert, fragmentShader: floorFrag, uniforms: { uTime: time, uFog: { value: FOG }, uRich: { value: tier === 'high' ? 1 : 0 } } }),
       sky: new THREE.ShaderMaterial({ vertexShader: skyVert, fragmentShader: skyFrag, uniforms: { uTime: time, uFog: { value: FOG } }, side: THREE.BackSide, depthWrite: false }),
       ray: new THREE.ShaderMaterial({ vertexShader: rayVert, fragmentShader: rayFrag, uniforms: { uTime: time, uCam: { value: new THREE.Vector3() } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
       snow: new THREE.ShaderMaterial({ vertexShader: snowVert, fragmentShader: snowFrag, uniforms: { uTime: time, uScale: { value: 800 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),

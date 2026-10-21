@@ -142,7 +142,7 @@ function Guide() {
             <i style={{ background: '#d8fff0' }} /> A school of fish spiralling up: it's deploying
           </li>
           <li>
-            <i style={{ background: '#7dffe8' }} /> A glowing jellyfish and a plankton bloom: it just shipped
+            <i style={{ background: '#ff9ff0' }} /> A pink jellyfish and a plankton bloom: it just shipped
           </li>
           <li>
             <i style={{ background: '#e8e4d8' }} /> Bleached white coral: a build or deploy failed
