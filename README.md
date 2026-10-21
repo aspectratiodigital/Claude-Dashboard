@@ -21,6 +21,8 @@ npm run dist
 
 That makes `release\ARD Blueprint Setup 0.1.0.exe`. Double-click it, click through the installer, and you get **ARD Blueprint** on your desktop and in the Start menu. Pin it to the taskbar if you like. The app has the data service built in, so nothing else needs to be running.
 
+If PowerShell says `npm.ps1 cannot be loaded because running scripts is disabled`, type `npm.cmd` instead of `npm` (for example `npm.cmd run dist`), or run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once and open a new window.
+
 Windows may show "Windows protected your PC" the first time, because the installer isn't code-signed. Click **More info**, then **Run anyway**.
 
 To update later: `git pull`, `npm run dist` again, and run the new installer over the old one. Your settings are kept.
