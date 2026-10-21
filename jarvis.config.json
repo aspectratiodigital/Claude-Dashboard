@@ -1,0 +1,8 @@
+{
+  "owner": "aspectratiodigital",
+  "include": [],
+  "exclude": [],
+  "pollSeconds": 60,
+  "uptimeMinutes": 5,
+  "projects": {}
+}

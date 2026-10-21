@@ -1,0 +1,626 @@
+import path from 'node:path'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Plugin } from 'vite'
+import type { Health, Note, NoteKind, Page, Project, Quality, Snapshot, Status, Thread } from '../src/data/types.ts'
+import { githubAuth, loadConfig, loadSettings, psiKey, saveSettings, type Config } from './config.ts'
+import { GitHub, listRepos, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
+import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
+import { scanLocalSessions, type LocalSession } from './claude.ts'
+import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
+import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
+
+// The local API behind every concept. It runs inside the Vite dev server (and
+// `vite preview`), polls GitHub, checks your live sites, reads your local
+// Claude Code sessions, turns changes into notifications and streams one
+// snapshot to the browser over Server-Sent Events.
+
+const STATE_FILE = path.join(DATA_DIR, 'state.json')
+const NOTES_FILE = path.join(DATA_DIR, 'notes.json')
+const MIN = 60_000
+
+interface Persisted {
+  projects: Project[]
+  health: Record<string, Health>
+  pages: Record<string, { at: number; pages: Page[] }>
+}
+
+class Engine {
+  cfg: Config = loadConfig()
+  gh: GitHub | null = null
+  auth: 'token' | 'gh' | 'none' = 'none'
+  login: string | null = null
+  repos: RepoInfo[] = []
+  reposAt = 0
+  data = new Map<string, RepoData>()
+  pushed = new Map<string, string>()
+  lastFull = new Map<string, number>()
+  lastLight = new Map<string, number>()
+  health = new Map<string, Health>()
+  sitePages = new Map<string, { at: number; pages: Page[] }>()
+  inspected = new Map<string, Page>()
+  psiAt = new Map<string, number>()
+  sessions: LocalSession[] = []
+  projects: Project[] = []
+  prev = new Map<string, Project>()
+  notes: Note[] = []
+  clients = new Set<ServerResponse>()
+  errors: string[] = []
+  busy = false
+  booted = false
+  lastSent = ''
+  timers: NodeJS.Timeout[] = []
+
+  start() {
+    if (this.booted) return
+    this.booted = true
+    ensureDirs()
+    const saved = readJson<Persisted | null>(STATE_FILE, null)
+    if (saved) {
+      for (const p of saved.projects ?? []) this.prev.set(p.id, p)
+      for (const [k, v] of Object.entries(saved.health ?? {})) this.health.set(k, v)
+      for (const [k, v] of Object.entries(saved.pages ?? {})) this.sitePages.set(k, v)
+      this.projects = saved.projects ?? []
+    }
+    this.notes = readJson<Note[]>(NOTES_FILE, [])
+    this.sessions = safe(() => scanLocalSessions(), [])
+    const loop = () => this.tick().catch((e) => log('tick failed', e))
+    loop()
+    this.timers.push(setInterval(loop, 15_000))
+    this.timers.push(setInterval(() => this.sites().catch((e) => log('site checks failed', e)), MIN))
+    this.timers.push(setInterval(() => this.scanSessions(), 20_000))
+    this.timers.push(setInterval(() => this.ping(), 25_000))
+    setTimeout(() => this.sites().catch(() => {}), 4000)
+  }
+
+  stop() {
+    this.timers.forEach(clearInterval)
+  }
+
+  // --- GitHub polling ---------------------------------------------------------------
+
+  async tick(force = false) {
+    if (this.busy) return
+    this.busy = true
+    try {
+      this.cfg = loadConfig()
+      const auth = await githubAuth()
+      if (!this.gh || auth.token !== this.gh.token) {
+        this.gh = new GitHub(auth.token)
+        this.auth = auth.source
+        this.login = auth.token ? await whoami(this.gh).catch(() => null) : null
+        this.reposAt = 0
+        this.data.clear()
+      }
+      if (!auth.token && !process.env.JARVIS_PUBLIC) {
+        this.errors = []
+        this.broadcast()
+        return
+      }
+      if (force || Date.now() - this.reposAt > this.cfg.pollSeconds * 1000) {
+        const all = await listRepos(this.gh, this.cfg.owner, this.login, this.cfg.include)
+        this.repos = all.filter((r) => this.wanted(r))
+        this.reposAt = Date.now()
+      }
+      const jobs = this.repos.map((repo) => async () => {
+        const key = repo.full.toLowerCase()
+        const prev = this.data.get(key)
+        const pushedChanged = this.pushed.get(key) !== repo.pushedAt
+        const active = prev ? isActive(prev) : false
+        const full = force || !prev || pushedChanged || Date.now() - (this.lastFull.get(key) ?? 0) > 2 * MIN
+        const light = !full && active && Date.now() - (this.lastLight.get(key) ?? 0) > 12_000
+        if (!full && !light) return
+        const d = await loadRepo(this.gh!, repo, { light, prev })
+        this.data.set(key, d)
+        this.pushed.set(key, repo.pushedAt)
+        if (full) this.lastFull.set(key, Date.now())
+        this.lastLight.set(key, Date.now())
+      })
+      await pool(jobs, 4)
+      this.errors = []
+      this.rebuild()
+    } catch (e) {
+      const msg = (e as Error).message
+      log(msg)
+      this.errors = [msg]
+      this.broadcast()
+    } finally {
+      this.busy = false
+    }
+  }
+
+  wanted(r: RepoInfo) {
+    const c = this.cfg
+    const o = c.projects[r.name] ?? c.projects[slug(r.name)]
+    if (o?.hidden) return false
+    if (c.include.length) return true
+    if (c.exclude.some((x) => x.toLowerCase() === r.name.toLowerCase())) return false
+    return !r.archived && !r.fork
+  }
+
+  // --- Live sites: uptime, response time, tags, pages, optional PSI ------------------
+
+  async sites() {
+    const key = psiKey()
+    const jobs = this.projects
+      .filter((p) => p.url)
+      .map((p) => async () => {
+        const url = p.url!
+        const h = this.health.get(p.id)
+        const sameUrl = h?.url === url
+        if (!sameUrl || ago(h?.checked) > this.cfg.uptimeMinutes * MIN - 5000) {
+          this.health.set(p.id, await checkHealth(url, sameUrl ? h : undefined))
+        }
+        const sp = this.sitePages.get(p.id)
+        if (!sp || Date.now() - sp.at > 6 * 60 * MIN) {
+          this.sitePages.set(p.id, { at: Date.now(), pages: await discoverPages(url).catch(() => []) })
+        }
+        if (key && Date.now() - (this.psiAt.get(p.id) ?? 0) > 24 * 60 * MIN) {
+          this.psiAt.set(p.id, Date.now())
+          const psi = await runPsi(url, key)
+          const cur = this.health.get(p.id)
+          if (psi && cur) this.health.set(p.id, { ...cur, psi })
+        }
+      })
+    await pool(jobs, 3)
+    this.rebuild()
+  }
+
+  scanSessions() {
+    const next = safe(() => scanLocalSessions(), this.sessions)
+    const sig = (s: LocalSession[]) => s.map((x) => x.id + x.updated).join()
+    if (sig(next) !== sig(this.sessions)) {
+      this.sessions = next
+      this.rebuild()
+    }
+  }
+
+  // --- Compose projects, diff, notify ------------------------------------------------------
+
+  get live() {
+    return !!this.gh?.token || !!process.env.JARVIS_PUBLIC
+  }
+
+  rebuild() {
+    if (!this.live) return this.broadcast()
+    const firstEver = this.prev.size === 0
+    const list: Project[] = []
+    for (const repo of this.repos) {
+      const d = this.data.get(repo.full.toLowerCase())
+      if (d) list.push(this.compose(repo, d))
+    }
+    list.sort((a, b) => a.name.localeCompare(b.name))
+    const fresh: Draft[] = []
+    for (const p of list) {
+      const before = this.prev.get(p.id)
+      if (firstEver) fresh.push(...seedNotes(p).map((n) => ({ ...n, seed: true })))
+      else fresh.push(...diffProject(before, p))
+      this.prev.set(p.id, p)
+    }
+    this.projects = list
+    for (const d of fresh) this.addNote(d, (d as { seed?: boolean }).seed === true)
+    writeJson(STATE_FILE, {
+      projects: list,
+      health: Object.fromEntries(this.health),
+      pages: Object.fromEntries(this.sitePages),
+    } satisfies Persisted, 2000)
+    this.broadcast()
+  }
+
+  compose(repo: RepoInfo, d: RepoData): Project {
+    const id = slug(repo.name)
+    const o = this.cfg.projects[repo.name] ?? this.cfg.projects[id] ?? {}
+    const prod = d.deployments.find((x) => x.production && x.state === 'success' && x.url)
+    const anyOk = d.deployments.find((x) => x.state === 'success' && x.url)
+    const url =
+      normaliseUrl(o.url) ?? normaliseUrl(repo.homepage) ?? normaliseUrl(d.cname) ?? normaliseUrl(prod?.url) ?? normaliseUrl(d.pagesUrl) ?? null
+    const previewUrl = normaliseUrl(o.previewUrl) ?? normaliseUrl(d.deployments.find((x) => !x.production && x.state === 'success' && x.url)?.url) ?? normaliseUrl(anyOk?.url) ?? url
+    const health: Health = this.health.get(id) ?? {
+      url,
+      checked: null,
+      up: null,
+      code: null,
+      ms: null,
+      bytes: null,
+      history: [],
+      uptimePct: null,
+      seoScore: null,
+      checks: [],
+      themeColor: null,
+      psi: null,
+    }
+    const threads = this.threads(repo, d)
+    const { status, reason } = statusOf(d, health, repo.defaultBranch, threads)
+    const pages = this.pages(id, d)
+    const theme = health.themeColor && /^#[0-9a-f]{6}$/i.test(health.themeColor) && !/^#(f{6}|0{6})$/i.test(health.themeColor) ? health.themeColor : null
+    return {
+      id,
+      name: o.name || prettyName(repo.name),
+      repo: repo.full,
+      description: repo.description,
+      private: repo.private,
+      language: repo.language,
+      framework: d.framework,
+      host: d.host,
+      defaultBranch: repo.defaultBranch,
+      url,
+      previewUrl,
+      localPort: o.localPort ?? d.port,
+      claudeProjectUrl: d.claudeProjectUrl,
+      status,
+      reason,
+      pushedAt: repo.pushedAt,
+      accent: theme ?? hashColor(repo.name),
+      activity: d.activity,
+      commitsWeek: d.commitsWeek,
+      branches: d.branches,
+      commits: d.commits.slice(0, 15),
+      pulls: d.pulls.slice(0, 12),
+      issues: d.issues.slice(0, 20),
+      runs: d.runs.slice(0, 12),
+      deployments: d.deployments,
+      threads,
+      pages,
+      health,
+      quality: qualityOf(d, health),
+    }
+  }
+
+  threads(repo: RepoInfo, d: RepoData): Thread[] {
+    const out: Thread[] = []
+    const used = new Set<string>()
+    for (const p of d.pulls) {
+      if (!p.claude) continue
+      const commits = d.commits.filter((c) => c.sessionUrl && c.sessionUrl === p.sessionUrl).length
+      if (p.sessionUrl) used.add(p.sessionUrl)
+      used.add(p.branch)
+      out.push({
+        id: p.sessionUrl ?? `pr-${p.number}`,
+        title: p.title,
+        source: p.sessionUrl || p.threadUrl ? 'claude-web' : 'pr',
+        status: p.state === 'open' ? (ago(p.updated) < 20 * MIN ? 'working' : 'open') : p.state,
+        updated: p.updated,
+        branch: p.branch,
+        url: p.threadUrl ?? p.sessionUrl,
+        prUrl: p.url,
+        prNumber: p.number,
+        commits,
+      })
+    }
+    const bySession = new Map<string, typeof d.commits>()
+    for (const c of d.commits) {
+      if (!c.sessionUrl || used.has(c.sessionUrl)) continue
+      bySession.set(c.sessionUrl, [...(bySession.get(c.sessionUrl) ?? []), c])
+    }
+    for (const [url, cs] of bySession) {
+      out.push({
+        id: url,
+        title: cs[cs.length - 1].message,
+        source: 'claude-web',
+        status: ago(cs[0].date) < 20 * MIN ? 'working' : 'merged',
+        updated: cs[0].date,
+        url,
+        commits: cs.length,
+        summary: `${cs.length} commit${cs.length === 1 ? '' : 's'} on ${repo.defaultBranch}`,
+      })
+    }
+    for (const b of d.branches) {
+      if (!b.startsWith('claude/') || used.has(b)) continue
+      out.push({ id: `branch-${b}`, title: b.replace(/^claude\//, '').replace(/[-_]/g, ' '), source: 'claude-web', status: 'open', updated: repo.pushedAt, branch: b, commits: 0, summary: 'Branch without a pull request' })
+    }
+    const key = repo.full.toLowerCase()
+    for (const s of this.sessions) {
+      const mine = s.repo ? s.repo === key : slug(s.folder) === slug(repo.name)
+      if (!mine) continue
+      out.push({
+        id: `local-${s.id}`,
+        title: s.title,
+        source: 'claude-local',
+        status: ago(s.updated) < 3 * MIN ? 'working' : 'idle',
+        updated: s.updated,
+        branch: s.branch ?? undefined,
+        commits: 0,
+        summary: `Claude Code on this computer, in ${s.folder}`,
+        resume: `claude --resume ${s.id}`,
+      })
+    }
+    return out.sort((a, b) => b.updated.localeCompare(a.updated)).slice(0, 24)
+  }
+
+  pages(id: string, d: RepoData): Page[] {
+    const site = this.sitePages.get(id)?.pages ?? []
+    const map = new Map<string, Page>()
+    for (const p of site) map.set(p.path, p)
+    for (const p of d.repoPages) if (!map.has(p.path)) map.set(p.path, p)
+    else map.set(p.path, { ...map.get(p.path)!, file: p.file })
+    if (!map.size) map.set('/', { path: '/', source: 'nav' })
+    return [...map.values()].map((p) => ({ ...p, ...(this.inspected.get(`${id}${p.path}`) ?? {}) })).slice(0, 60)
+  }
+
+  addNote(d: Draft, seeded = false) {
+    if (this.notes.some((n) => n.id === d.id)) return
+    const note: Note = { ...d, at: d.at ?? now(), read: seeded }
+    delete (note as { seed?: boolean }).seed
+    this.notes.unshift(note)
+    this.notes.sort((a, b) => b.at.localeCompare(a.at))
+    this.notes = this.notes.slice(0, 300)
+    writeJson(NOTES_FILE, this.notes)
+    if (!seeded) this.send('note', note)
+  }
+
+  // --- Output ----------------------------------------------------------------------------
+
+  snapshot(): Snapshot {
+    const live = this.live
+    return {
+      mode: live ? 'live' : 'demo',
+      projects: live ? this.projects : [],
+      notes: live ? this.notes.slice(0, 120) : [],
+      setup: {
+        github: this.auth,
+        owner: this.cfg.owner,
+        login: this.login,
+        psi: !!psiKey(),
+        claudeSessions: this.sessions.length,
+      },
+      updated: now(),
+      rate: this.gh?.rate ?? null,
+      errors: this.errors,
+    }
+  }
+
+  broadcast() {
+    const snap = this.snapshot()
+    const sig = JSON.stringify({ ...snap, updated: '', rate: null })
+    if (sig === this.lastSent) return
+    this.lastSent = sig
+    this.send('snapshot', snap)
+  }
+
+  send(event: string, data: unknown) {
+    const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+    for (const c of this.clients) c.write(msg)
+  }
+
+  ping() {
+    for (const c of this.clients) c.write(': ping\n\n')
+  }
+}
+
+// --- helpers ---------------------------------------------------------------------------------
+
+function safe<T>(fn: () => T, fallback: T): T {
+  try {
+    return fn()
+  } catch {
+    return fallback
+  }
+}
+
+async function pool(jobs: (() => Promise<void>)[], n: number) {
+  let i = 0
+  const errs: Error[] = []
+  await Promise.all(
+    Array.from({ length: Math.min(n, jobs.length) }, async () => {
+      while (i < jobs.length) {
+        const job = jobs[i++]
+        try {
+          await job()
+        } catch (e) {
+          errs.push(e as Error)
+        }
+      }
+    }),
+  )
+  if (errs.length) throw errs[0]
+}
+
+function isActive(d: RepoData) {
+  return d.deployPending || d.runs.some((r) => r.status === 'running' || r.status === 'queued') || d.deployments.some((x) => ['queued', 'pending', 'in_progress'].includes(x.state))
+}
+
+function statusOf(d: RepoData, h: Health, branch: string, threads: Thread[]): { status: Status; reason: string } {
+  const lastMain = d.runs.find((r) => r.branch === branch && r.status !== 'skipped' && r.status !== 'cancelled')
+  const lastProd = d.deployments.find((x) => x.production && x.state !== 'inactive')
+  if (lastMain?.status === 'failure') return { status: 'broken', reason: `${lastMain.name} is failing on ${branch}` }
+  if (lastProd && (lastProd.state === 'failure' || lastProd.state === 'error')) return { status: 'broken', reason: `The last ${lastProd.environment} deploy failed` }
+  if (h.up === false) return { status: 'broken', reason: `The live site isn't responding (${h.code ?? 'no answer'})` }
+  const running = d.runs.find((r) => r.status === 'running' || r.status === 'queued')
+  if (running) return { status: 'building', reason: `${running.name} running on ${running.branch}` }
+  const deploying = d.deployments.find((x) => ['queued', 'pending', 'in_progress'].includes(x.state))
+  if (deploying || d.deployPending) return { status: 'deploying', reason: deploying ? `Deploying ${deploying.environment}` : 'A deploy is in progress' }
+  const bugs = d.issues.filter((i) => i.bug).length
+  const failingPr = d.pulls.find((p) => p.state === 'open' && p.checks === 'fail')
+  const review = d.pulls.find((p) => p.state === 'open' && p.reviewRequested)
+  if (failingPr) return { status: 'attention', reason: `PR #${failingPr.number} has failing checks` }
+  if (bugs) return { status: 'attention', reason: `${bugs} open bug${bugs === 1 ? '' : 's'}` }
+  if (review) return { status: 'attention', reason: `PR #${review.number} is waiting for your review` }
+  if (d.issues.length) return { status: 'attention', reason: `${d.issues.length} open issue${d.issues.length === 1 ? '' : 's'}` }
+  const working = threads.find((t) => t.status === 'working')
+  if (working) return { status: 'building', reason: `Claude is working: ${working.title}` }
+  const quiet = !d.commits[0] || ago(d.commits[0].date) > 30 * 24 * 60 * MIN
+  if (quiet) return { status: 'quiet', reason: 'No changes in the last month' }
+  return { status: 'live', reason: lastProd?.state === 'success' ? `Deployed ${relTime(lastProd.created)}` : `Last change ${relTime(d.commits[0].date)}` }
+}
+
+function qualityOf(d: RepoData, h: Health): Quality {
+  const done = d.runs.filter((r) => r.status === 'success' || r.status === 'failure').slice(0, 20)
+  const pass = done.length ? done.filter((r) => r.status === 'success').length / done.length : null
+  const durs = done.map((r) => r.durationS).filter((x): x is number => x !== null)
+  const merged = new Set(d.pulls.filter((p) => p.state !== 'open').map((p) => p.branch))
+  const stale = d.branches.filter((b) => merged.has(b)).length
+  const bugs = d.issues.filter((i) => i.bug).length
+  const parts: [number, number][] = []
+  if (pass !== null) parts.push([pass * 100, 0.45])
+  if (h.seoScore !== null) parts.push([h.seoScore, 0.2])
+  if (h.psi) parts.push([h.psi.scores.performance, 0.2])
+  if (h.uptimePct !== null) parts.push([h.uptimePct, 0.15])
+  parts.push([Math.max(0, 100 - bugs * 15 - Math.max(0, d.issues.length - bugs) * 4), 0.2])
+  const w = parts.reduce((a, [, x]) => a + x, 0)
+  const score = parts.reduce((a, [v, x]) => a + v * x, 0) / w
+  const grade = pass === null && h.seoScore === null ? null : score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 65 ? 'C' : score >= 50 ? 'D' : 'F'
+  return {
+    ciPassRate: pass,
+    avgBuildS: durs.length ? Math.round(durs.reduce((a, b) => a + b, 0) / durs.length) : null,
+    openBugs: bugs,
+    openPRs: d.pulls.filter((p) => p.state === 'open').length,
+    staleBranches: stale,
+    grade,
+  }
+}
+
+function relTime(iso: string) {
+  const m = Math.round(ago(iso) / MIN)
+  if (m < 60) return `${m}m ago`
+  const h = Math.round(m / 60)
+  if (h < 48) return `${h}h ago`
+  return `${Math.round(h / 24)}d ago`
+}
+
+// --- HTTP -------------------------------------------------------------------------------------
+
+const engine = new Engine()
+
+function json(res: ServerResponse, code: number, body: unknown) {
+  res.statusCode = code
+  res.setHeader('Content-Type', 'application/json')
+  res.setHeader('Cache-Control', 'no-store')
+  res.end(JSON.stringify(body))
+}
+
+function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    let raw = ''
+    req.on('data', (c) => {
+      raw += c
+      if (raw.length > 100_000) req.destroy()
+    })
+    req.on('end', () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : {})
+      } catch {
+        resolve({})
+      }
+    })
+  })
+}
+
+/** Only the dashboard itself may change settings: no cross-site requests. */
+function sameOrigin(req: IncomingMessage) {
+  const origin = req.headers.origin
+  const site = req.headers['sec-fetch-site']
+  if (site && site !== 'same-origin' && site !== 'none') return false
+  if (!origin) return true
+  try {
+    return new URL(origin).host === req.headers.host
+  } catch {
+    return false
+  }
+}
+
+const NOTE_KINDS: NoteKind[] = ['build', 'build-ok', 'build-fail', 'deploying', 'deployed', 'deploy-fail', 'issue', 'pr', 'merged', 'review', 'push', 'claude', 'down', 'up', 'perf']
+
+async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
+  const url = new URL(req.url ?? '/', 'http://localhost')
+  if (!url.pathname.startsWith('/api/')) return next()
+  engine.start()
+  const route = `${req.method} ${url.pathname}`
+  if (req.method === 'POST' && !sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
+
+  switch (route) {
+    case 'GET /api/snapshot':
+      return json(res, 200, engine.snapshot())
+
+    case 'GET /api/stream': {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' })
+      res.write('retry: 3000\n\n')
+      res.write(`event: snapshot\ndata: ${JSON.stringify(engine.snapshot())}\n\n`)
+      engine.clients.add(res)
+      req.on('close', () => engine.clients.delete(res))
+      return
+    }
+
+    case 'POST /api/refresh':
+      engine.tick(true).catch(() => {})
+      return json(res, 202, { ok: true })
+
+    case 'GET /api/settings': {
+      const s = loadSettings()
+      return json(res, 200, { owner: engine.cfg.owner, github: engine.auth, login: engine.login, hasToken: !!s.githubToken, psi: !!psiKey(), projects: s.projects ?? {} })
+    }
+
+    case 'POST /api/settings': {
+      const body = await readBody(req)
+      const patch: Parameters<typeof saveSettings>[0] = {}
+      if (typeof body.githubToken === 'string') patch.githubToken = body.githubToken.trim()
+      if (typeof body.psiKey === 'string') patch.psiKey = body.psiKey.trim()
+      if (typeof body.owner === 'string') patch.owner = body.owner.trim()
+      if (body.projects && typeof body.projects === 'object') patch.projects = body.projects as never
+      saveSettings(patch)
+      setTimeout(() => engine.tick(true).catch(() => {}), 50)
+      return json(res, 200, { ok: true })
+    }
+
+    case 'POST /api/notes/read': {
+      const body = await readBody(req)
+      const ids = Array.isArray(body.ids) ? new Set(body.ids as string[]) : null
+      for (const n of engine.notes) if (!ids || ids.has(n.id)) n.read = true
+      writeJson(NOTES_FILE, engine.notes)
+      engine.broadcast()
+      return json(res, 200, { ok: true })
+    }
+
+    case 'POST /api/notes/clear':
+      engine.notes = []
+      writeJson(NOTES_FILE, [])
+      engine.broadcast()
+      return json(res, 200, { ok: true })
+
+    case 'POST /api/notes/test': {
+      const body = await readBody(req)
+      const p = engine.projects.find((x) => x.id === body.projectId) ?? engine.projects[0]
+      const kind = NOTE_KINDS.includes(body.kind as NoteKind) ? (body.kind as NoteKind) : 'deployed'
+      if (!p) return json(res, 404, { error: 'no projects yet' })
+      engine.addNote(testNote(p, kind))
+      engine.broadcast()
+      return json(res, 200, { ok: true })
+    }
+
+    case 'GET /api/inspect': {
+      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
+      const pagePath = url.searchParams.get('path') ?? '/'
+      if (!p?.url) return json(res, 404, { error: 'this project has no live URL' })
+      const key = `${p.id}${pagePath}`
+      const hit = engine.inspected.get(key)
+      if (hit?.checked && ago(hit.checked) < 30 * MIN) return json(res, 200, hit)
+      const info = { path: pagePath, source: 'nav' as const, ...(await inspectPage(new URL(pagePath, p.url + '/').href)) }
+      engine.inspected.set(key, info)
+      engine.rebuild()
+      return json(res, 200, info)
+    }
+
+    case 'POST /api/health': {
+      const body = await readBody(req)
+      const p = engine.projects.find((x) => x.id === body.projectId)
+      if (!p?.url) return json(res, 404, { error: 'this project has no live URL' })
+      engine.health.set(p.id, await checkHealth(p.url, engine.health.get(p.id)))
+      engine.rebuild()
+      return json(res, 200, engine.health.get(p.id))
+    }
+  }
+  return json(res, 404, { error: `no route ${route}` })
+}
+
+export function jarvisApi(): Plugin {
+  return {
+    name: 'jarvis-api',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => void handle(req, res, next))
+      server.httpServer?.once('listening', () => engine.start())
+      server.httpServer?.once('close', () => engine.stop())
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use((req, res, next) => void handle(req, res, next))
+      server.httpServer?.once('listening', () => engine.start())
+    },
+  }
+}

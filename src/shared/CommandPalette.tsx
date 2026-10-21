@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { SITES, STATUS_LABEL } from '../data/mock'
+import { useData } from '../data/store'
+import { STATUS_LABEL } from '../data/derive'
 import { CONCEPTS, useApp } from '../store'
+import { enterStage, sourcesFor } from './Preview'
 
 interface Action {
   id: string
@@ -9,34 +11,37 @@ interface Action {
   run: () => void
 }
 
-// Ctrl/Cmd K: jump to any site or concept from the keyboard.
+// Ctrl/Cmd K: jump to any project, open its fullscreen previews, switch concept.
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen)
   const setOpen = useApp((s) => s.setPalette)
+  const projects = useData((s) => s.projects)
   const [q, setQ] = useState('')
   const [i, setI] = useState(0)
   const input = useRef<HTMLInputElement>(null)
 
   const actions = useMemo<Action[]>(() => {
     const st = useApp.getState()
-    return [
-      ...SITES.map((s) => ({
-        id: `site-${s.id}`,
-        label: `Open ${s.name}`,
-        hint: `${s.repo} · ${STATUS_LABEL[s.status]}`,
-        run: () => st.select(s.id),
-      })),
-      ...CONCEPTS.map((c) => ({
-        id: `concept-${c.id}`,
-        label: `Switch to ${c.name}`,
-        hint: c.blurb,
-        run: () => st.setConcept(c.id),
-      })),
+    const out: Action[] = []
+    for (const p of projects) {
+      out.push({ id: `open-${p.id}`, label: `Open ${p.name}`, hint: `${STATUS_LABEL[p.status]} · ${p.reason}`, run: () => st.select(p.id) })
+      const src = sourcesFor(p)[0]
+      if (src) {
+        out.push({ id: `desk-${p.id}`, label: `${p.name}: fullscreen desktop`, hint: 'Preview', run: () => enterStage({ projectId: p.id, device: 'desktop', source: src, path: '/' }) })
+        out.push({ id: `mob-${p.id}`, label: `${p.name}: fullscreen mobile`, hint: 'Preview', run: () => enterStage({ projectId: p.id, device: 'mobile', source: src, path: '/' }) })
+      }
+    }
+    out.push(
+      ...CONCEPTS.map((c) => ({ id: `concept-${c.id}`, label: `Switch to ${c.name}`, hint: c.blurb, run: () => st.setConcept(c.id) })),
+      { id: 'notes', label: 'Show notifications', hint: 'N', run: () => st.setNotes(true) },
+      { id: 'settings', label: 'Settings: connect GitHub, links, quality', hint: '', run: () => st.setSettings(true) },
+      { id: 'refresh', label: 'Refresh data now', hint: '', run: () => useData.getState().refresh() },
       { id: 'fps', label: 'Toggle frame-rate meter', hint: 'F', run: () => st.toggleFps() },
-    ]
-  }, [])
+    )
+    return out
+  }, [projects])
 
-  const results = actions.filter((a) => (a.label + a.hint).toLowerCase().includes(q.toLowerCase()))
+  const results = actions.filter((a) => (a.label + a.hint).toLowerCase().includes(q.toLowerCase())).slice(0, 40)
 
   useEffect(() => {
     if (open) {
@@ -50,8 +55,8 @@ export function CommandPalette() {
 
   const run = (a?: Action) => {
     if (!a) return
-    a.run()
     setOpen(false)
+    a.run()
   }
 
   return (
@@ -60,7 +65,7 @@ export function CommandPalette() {
         <input
           ref={input}
           value={q}
-          placeholder="Jump to a site or concept"
+          placeholder="Jump to a project, a preview or a concept"
           onChange={(e) => {
             setQ(e.target.value)
             setI(0)
@@ -83,7 +88,7 @@ export function CommandPalette() {
               <small>{a.hint}</small>
             </li>
           ))}
-          {!results.length && <li className="empty">No match. Try a site name like “Kiln”.</li>}
+          {!results.length && <li className="empty">No match.</li>}
         </ul>
       </div>
     </div>

@@ -1,21 +1,35 @@
-@import '@fontsource/oxanium/400.css';
-@import '@fontsource/oxanium/600.css';
-@import '@fontsource/oxanium/800.css';
-@import '@fontsource/share-tech-mono/400.css';
+@import '@fontsource/sora/300.css';
+@import '@fontsource/sora/400.css';
+@import '@fontsource/sora/600.css';
+@import '@fontsource/sora/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/600.css';
 @import '@fontsource/instrument-serif/400.css';
 @import '@fontsource/instrument-serif/400-italic.css';
 @import '@fontsource/manrope/400.css';
 @import '@fontsource/manrope/600.css';
-@import '@fontsource/syne/500.css';
-@import '@fontsource/syne/700.css';
-@import '@fontsource/syne/800.css';
-@import '@fontsource/dm-sans/400.css';
-@import '@fontsource/dm-sans/500.css';
 @import '@fontsource/archivo/400.css';
 @import '@fontsource/archivo/700.css';
 @import '@fontsource/archivo/900.css';
 @import '@fontsource/ibm-plex-mono/400.css';
 @import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/fredoka/500.css';
+@import '@fontsource/fredoka/600.css';
+@import '@fontsource/fredoka/700.css';
+@import '@fontsource/nunito/400.css';
+@import '@fontsource/nunito/600.css';
+@import '@fontsource/nunito/800.css';
+@import '@fontsource/bodoni-moda/400.css';
+@import '@fontsource/bodoni-moda/400-italic.css';
+@import '@fontsource/bodoni-moda/600.css';
+@import '@fontsource/jost/300.css';
+@import '@fontsource/jost/400.css';
+@import '@fontsource/jost/500.css';
+@import '@fontsource/press-start-2p/400.css';
+@import '@fontsource/vt323/400.css';
+@import '@fontsource/outfit/300.css';
+@import '@fontsource/outfit/400.css';
+@import '@fontsource/outfit/600.css';
 
 *,
 *::before,
@@ -29,48 +43,138 @@ button {
   font: inherit;
 }
 
+/* Design tokens. Every concept sets its own; shared UI (tray, toasts,
+   drawer, settings, previews, palette) reads only these. */
 .app {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  /* switcher theme, overridden per concept */
-  --sw-bg: rgba(4, 14, 22, 0.7);
-  --sw-fg: #bdf4ff;
-  --sw-ac: #4fe3ff;
-  --sw-on-fg: #03070d;
-  --sw-line: rgba(79, 227, 255, 0.3);
-  --sw-font: 'Oxanium', sans-serif;
-  --sw-radius: 2px;
-  --sw-blur: 10px;
+  --ui-bg: rgba(6, 16, 28, 0.72);
+  --ui-solid: #07111d;
+  --ui-fg: #dff6ff;
+  --ui-muted: #7ea3b6;
+  --ui-line: rgba(120, 220, 255, 0.18);
+  --ui-ac: #5ce1ff;
+  --ui-ac-fg: #03121c;
+  --ui-font: 'Sora', system-ui, sans-serif;
+  --ui-display: 'Sora', system-ui, sans-serif;
+  --ui-mono: 'JetBrains Mono', monospace;
+  --ui-radius: 14px;
+  --ui-blur: 16px;
+  --lv-info: #7aa7ff;
+  --lv-progress: #ffb547;
+  --lv-success: #3ddc97;
+  --lv-warning: #ffcc4d;
+  --lv-critical: #ff4d6a;
+  transition: background 0.6s;
 }
 .app[data-concept='helix'] {
-  --sw-bg: rgba(255, 255, 255, 0.55);
-  --sw-fg: #22263a;
-  --sw-ac: #2e4bff;
-  --sw-on-fg: #fff;
-  --sw-line: rgba(34, 38, 58, 0.12);
-  --sw-font: 'Manrope', sans-serif;
-  --sw-radius: 999px;
-  --sw-blur: 18px;
-}
-.app[data-concept='orbit'] {
-  --sw-bg: rgba(14, 11, 20, 0.6);
-  --sw-fg: #e9dcc9;
-  --sw-ac: #ffc46b;
-  --sw-on-fg: #1a0f02;
-  --sw-line: rgba(255, 196, 107, 0.22);
-  --sw-font: 'Syne', sans-serif;
-  --sw-radius: 999px;
+  --ui-bg: rgba(255, 255, 255, 0.7);
+  --ui-solid: #f7f8fc;
+  --ui-fg: #1b1e2e;
+  --ui-muted: #6a6f85;
+  --ui-line: rgba(27, 30, 46, 0.1);
+  --ui-ac: #2e4bff;
+  --ui-ac-fg: #fff;
+  --ui-font: 'Manrope', system-ui, sans-serif;
+  --ui-display: 'Instrument Serif', serif;
+  --ui-radius: 16px;
+  --ui-blur: 18px;
+  --lv-success: #1f9d6b;
+  --lv-progress: #d98a00;
+  --lv-warning: #c98a00;
+  --lv-critical: #e5484d;
+  --lv-info: #2e4bff;
 }
 .app[data-concept='blueprint'] {
-  --sw-bg: #123a6b;
-  --sw-fg: #dbe8ff;
-  --sw-ac: #ffd23f;
-  --sw-on-fg: #0c2443;
-  --sw-line: rgba(219, 232, 255, 0.5);
-  --sw-font: 'IBM Plex Mono', monospace;
-  --sw-radius: 0;
-  --sw-blur: 0px;
+  --ui-bg: #123a6b;
+  --ui-solid: #123a6b;
+  --ui-fg: #dbe8ff;
+  --ui-muted: #94b0d8;
+  --ui-line: rgba(219, 232, 255, 0.4);
+  --ui-ac: #ffd23f;
+  --ui-ac-fg: #0c2443;
+  --ui-font: 'IBM Plex Mono', monospace;
+  --ui-display: 'Archivo', sans-serif;
+  --ui-mono: 'IBM Plex Mono', monospace;
+  --ui-radius: 0px;
+  --ui-blur: 0px;
+  --lv-success: #7dffb0;
+  --lv-progress: #ffd23f;
+  --lv-critical: #ff6b6b;
+}
+.app[data-concept='township'] {
+  --ui-bg: rgba(255, 251, 243, 0.94);
+  --ui-solid: #fffaf1;
+  --ui-fg: #3b2f2a;
+  --ui-muted: #8a786b;
+  --ui-line: rgba(59, 47, 42, 0.12);
+  --ui-ac: #ff7a59;
+  --ui-ac-fg: #fff;
+  --ui-font: 'Nunito', system-ui, sans-serif;
+  --ui-display: 'Fredoka', 'Nunito', sans-serif;
+  --ui-radius: 18px;
+  --ui-blur: 0px;
+  --lv-success: #36b37e;
+  --lv-progress: #f5a524;
+  --lv-warning: #e8a317;
+  --lv-critical: #e5484d;
+  --lv-info: #5b8def;
+}
+.app[data-concept='gallery'] {
+  --ui-bg: rgba(250, 249, 246, 0.95);
+  --ui-solid: #faf9f6;
+  --ui-fg: #151515;
+  --ui-muted: #7a766e;
+  --ui-line: rgba(21, 21, 21, 0.12);
+  --ui-ac: #151515;
+  --ui-ac-fg: #faf9f6;
+  --ui-font: 'Jost', system-ui, sans-serif;
+  --ui-display: 'Bodoni Moda', serif;
+  --ui-radius: 2px;
+  --ui-blur: 0px;
+  --lv-success: #2f7d5b;
+  --lv-progress: #b07a1a;
+  --lv-warning: #b07a1a;
+  --lv-critical: #b3261e;
+  --lv-info: #3c5a99;
+}
+.app[data-concept='arcade'] {
+  --ui-bg: rgba(22, 4, 40, 0.88);
+  --ui-solid: #160428;
+  --ui-fg: #ffe9ff;
+  --ui-muted: #c18fe0;
+  --ui-line: rgba(255, 61, 240, 0.4);
+  --ui-ac: #ff3df0;
+  --ui-ac-fg: #160428;
+  --ui-font: 'VT323', monospace;
+  --ui-display: 'Press Start 2P', monospace;
+  --ui-mono: 'VT323', monospace;
+  --ui-radius: 0px;
+  --ui-blur: 0px;
+  --lv-info: #3df5ff;
+  --lv-progress: #ffe53d;
+  --lv-success: #3dff8b;
+  --lv-warning: #ff9d3d;
+  --lv-critical: #ff3d5e;
+}
+.app[data-concept='reef'] {
+  --ui-bg: rgba(2, 32, 42, 0.62);
+  --ui-solid: #04242f;
+  --ui-fg: #dcfbff;
+  --ui-muted: #84bdc8;
+  --ui-line: rgba(120, 255, 240, 0.16);
+  --ui-ac: #5fffe0;
+  --ui-ac-fg: #00262b;
+  --ui-font: 'Outfit', system-ui, sans-serif;
+  --ui-display: 'Outfit', system-ui, sans-serif;
+  --ui-radius: 20px;
+  --ui-blur: 14px;
+  --lv-info: #7fc8ff;
+  --lv-progress: #ffd36e;
+  --lv-success: #6dffb5;
+  --lv-warning: #ffbe6e;
+  --lv-critical: #ff6e8a;
 }
 
 .boot {
@@ -78,8 +182,8 @@ button {
   inset: 0;
   display: grid;
   place-items: center;
-  color: var(--sw-fg);
-  font: 14px var(--sw-font);
+  color: var(--ui-fg);
+  font: 14px var(--ui-font);
   letter-spacing: 0.08em;
 }
 
@@ -109,76 +213,105 @@ button {
   display: flex;
   gap: 2px;
   padding: 3px;
-  background: var(--sw-bg);
-  border: 1px solid var(--sw-line);
-  border-radius: var(--sw-radius);
-  backdrop-filter: blur(var(--sw-blur)) saturate(1.4);
-  font-family: var(--sw-font);
-  transition: background 0.6s, border-color 0.6s, border-radius 0.6s;
+  background: var(--ui-bg);
+  box-shadow: inset 0 0 0 1px var(--ui-line);
+  border-radius: calc(var(--ui-radius) + 3px);
+  backdrop-filter: blur(var(--ui-blur)) saturate(1.4);
+  font-family: var(--ui-font);
+  transition: background 0.6s, border-radius 0.6s;
 }
 .switcher button {
   all: unset;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
-  font-size: 13px;
-  color: var(--sw-fg);
-  border-radius: var(--sw-radius);
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--ui-fg);
+  border-radius: var(--ui-radius);
+  white-space: nowrap;
   transition: background 0.25s, color 0.25s;
 }
+.app[data-concept='arcade'] .switcher button {
+  font-size: 17px;
+  padding: 4px 9px;
+}
 .switcher button:hover {
-  background: color-mix(in srgb, var(--sw-ac) 18%, transparent);
+  background: color-mix(in srgb, var(--ui-ac) 16%, transparent);
 }
 .switcher button[aria-pressed='true'] {
-  background: var(--sw-ac);
-  color: var(--sw-on-fg);
+  background: var(--ui-ac);
+  color: var(--ui-ac-fg);
 }
 .switcher button:focus-visible {
-  outline: 2px solid var(--sw-ac);
+  outline: 2px solid var(--ui-ac);
   outline-offset: 2px;
 }
 .switcher kbd {
-  font: 10px/1 var(--sw-font);
+  font: 10px/1 var(--ui-font);
   opacity: 0.55;
 }
 .switcher-k {
-  border-left: 1px solid var(--sw-line) !important;
-  border-radius: 0 !important;
   margin-left: 4px;
+  box-shadow: -1px 0 0 var(--ui-line);
+  border-radius: 0 var(--ui-radius) var(--ui-radius) 0 !important;
+}
+@media (max-width: 1280px) {
+  .switcher button:not([aria-pressed='true']) span {
+    display: none;
+  }
 }
 
 /* Concept wipe ----------------------------------------------------------- */
 .wipe {
   position: absolute;
   inset: 0;
-  z-index: 60;
+  z-index: 90;
   pointer-events: none;
   display: grid;
   place-items: center;
   --wc: #03070d;
-  --wt: #4fe3ff;
+  --wt: #5ce1ff;
+  --wf: 'Sora';
   background: var(--wc);
   clip-path: circle(0% at 50% 50%);
-  font: 800 clamp(48px, 9vw, 140px) / 1 var(--wf, 'Oxanium');
+  font: 700 clamp(48px, 9vw, 140px) / 1 var(--wf);
   color: var(--wt);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 .wipe[data-to='helix'] {
   --wc: #e4e7f1;
   --wt: #2e4bff;
   --wf: 'Instrument Serif';
 }
-.wipe[data-to='orbit'] {
-  --wc: #07060b;
-  --wt: #ffc46b;
-  --wf: 'Syne';
-}
 .wipe[data-to='blueprint'] {
   --wc: #164a86;
   --wt: #ffffff;
   --wf: 'Archivo';
+}
+.wipe[data-to='township'] {
+  --wc: #9fd8f0;
+  --wt: #fffaf1;
+  --wf: 'Fredoka';
+}
+.wipe[data-to='gallery'] {
+  --wc: #f4f2ed;
+  --wt: #151515;
+  --wf: 'Bodoni Moda';
+}
+.wipe[data-to='arcade'] {
+  --wc: #12021f;
+  --wt: #ff3df0;
+  --wf: 'Press Start 2P';
+}
+.wipe[data-to='arcade'] span {
+  font-size: 0.5em;
+}
+.wipe[data-to='reef'] {
+  --wc: #021820;
+  --wt: #5fffe0;
+  --wf: 'Outfit';
 }
 .wipe span {
   opacity: 0;
@@ -226,7 +359,7 @@ button {
 .palette-scrim {
   position: absolute;
   inset: 0;
-  z-index: 70;
+  z-index: 80;
   background: rgba(0, 0, 0, 0.35);
   display: flex;
   justify-content: center;
@@ -235,20 +368,14 @@ button {
   animation: fade 0.18s ease-out;
 }
 .palette {
-  width: min(560px, 92vw);
-  background: var(--sw-bg);
-  border: 1px solid var(--sw-line);
-  border-radius: 4px;
-  backdrop-filter: blur(24px) saturate(1.5);
-  color: var(--sw-fg);
-  font-family: var(--sw-font);
+  width: min(580px, 92vw);
+  background: var(--ui-solid);
+  box-shadow: inset 0 0 0 1px var(--ui-line), 0 30px 80px rgba(0, 0, 0, 0.4);
+  border-radius: var(--ui-radius);
+  color: var(--ui-fg);
+  font-family: var(--ui-font);
   overflow: hidden;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
   animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
-}
-.app[data-concept='helix'] .palette,
-.app[data-concept='orbit'] .palette {
-  border-radius: 18px;
 }
 .palette input {
   all: unset;
@@ -256,7 +383,7 @@ button {
   width: 100%;
   padding: 16px 18px;
   font-size: 16px;
-  border-bottom: 1px solid var(--sw-line);
+  border-bottom: 1px solid var(--ui-line);
 }
 .palette ul {
   list-style: none;
@@ -270,18 +397,18 @@ button {
   justify-content: space-between;
   gap: 16px;
   padding: 9px 12px;
-  border-radius: 8px;
+  border-radius: calc(var(--ui-radius) * 0.6);
   cursor: pointer;
   font-size: 14px;
 }
 .palette li small {
-  opacity: 0.55;
+  color: var(--ui-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .palette li[aria-selected='true'] {
-  background: color-mix(in srgb, var(--sw-ac) 22%, transparent);
+  background: color-mix(in srgb, var(--ui-ac) 20%, transparent);
 }
 .palette li.empty {
   opacity: 0.6;
@@ -301,12 +428,12 @@ button {
 
 .fps {
   position: absolute;
-  right: 12px;
+  left: 12px;
   bottom: 12px;
-  z-index: 80;
-  font: 12px/1 'Share Tech Mono', monospace;
+  z-index: 95;
+  font: 12px/1 'JetBrains Mono', monospace;
   color: #7dff9b;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.65);
   padding: 6px 8px;
   border-radius: 4px;
   pointer-events: none;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { siteById, SITES, totals } from '../data/mock'
+import { getProject, useData } from '../data/store'
+import { STATUS_LABEL } from '../data/derive'
 
 // Mock Claude session. Replies are canned but context-aware and stream in
 // word by word so every concept can animate "speaking". Replace `compose`
@@ -14,32 +15,33 @@ export interface ChatMessage {
 
 function compose(prompt: string, siteId: string | null): string {
   const p = prompt.toLowerCase()
-  const site = siteById(siteId)
+  const all = useData.getState().projects
+  const site = getProject(siteId)
+  const broken = all.filter((x) => x.status === 'broken')
+  const busy = all.filter((x) => x.status === 'building' || x.status === 'deploying')
   if (/(status|how.*(doing|going)|overview|summary)/.test(p)) {
-    const attention = SITES.filter((s) => s.status === 'attention').map((s) => s.name)
-    return `${totals.live} sites are live and ${totals.building} are building. ${
-      attention.length ? `${attention.join(', ')} needs a look: the timetable fix is still failing on Safari.` : 'Nothing needs your attention.'
-    } Across everything you had ${totals.visitors7d.toLocaleString()} visitors this week, with ${totals.openPRs} pull requests open.`
+    return `${all.length} projects: ${all.filter((x) => x.status === 'live').length} live, ${busy.length} building or deploying. ${
+      broken.length ? `${broken.map((x) => `${x.name} (${x.reason.toLowerCase()})`).join(', ')} needs a look.` : 'Nothing is broken.'
+    } ${all.reduce((a, x) => a + x.pulls.filter((q) => q.state === 'open').length, 0)} pull requests are open.`
   }
   if (/(deploy|ship|release)/.test(p)) {
     return site
-      ? `I can deploy ${site.repo}@${site.branch} once checks pass. ${site.openPRs} PR${site.openPRs === 1 ? '' : 's'} open, last commit "${site.commits[0].message}". Want me to start a preview build first?`
-      : 'Pick a site and I will prepare a preview deploy for it, then promote it once you approve.'
+      ? `${site.name} deploys through ${site.host ?? 'its host'} from ${site.defaultBranch}. Last change: "${site.commits[0]?.message ?? 'none yet'}". Merging an open PR will trigger the next deploy.`
+      : 'Pick a project and I will tell you what is waiting to ship.'
   }
-  if (/(bug|fix|error|broken)/.test(p)) {
-    return site
-      ? `On ${site.name} I'd start with the latest change on ${site.branch}. I'll open a Claude Code session in ${site.repo}, reproduce it on localhost:${site.port} and propose a patch.`
-      : 'Volt Gyms is the only site with failing checks. I can open a Claude Code session on fix/timetable-tz and reproduce the Safari bug.'
+  if (/(bug|fix|error|broken|fail)/.test(p)) {
+    if (site) return site.status === 'broken' ? `${site.name}: ${site.reason}. Open the failing run from the activity list, then start a Claude thread on it with the logs.` : `${site.name} looks healthy: ${site.reason.toLowerCase()}.`
+    return broken.length ? `${broken.map((x) => `${x.name}: ${x.reason}`).join('. ')}.` : 'Nothing is failing right now.'
   }
   if (/(preview|mobile|localhost)/.test(p)) {
     return site
-      ? `The preview panel is showing ${site.name}. Switch to mobile to check the ${site.framework} layout at 390px, or point it at localhost:${site.port} once your dev server is running.`
-      : 'Select any site to open its preview. Desktop and mobile frames both work, and you can point them at a localhost port.'
+      ? `Click the desktop or phone frame to open ${site.name} fullscreen in that size. ${site.localPort ? `Its dev server usually runs on localhost:${site.localPort}.` : ''}`
+      : 'Select any project to see it big in desktop and mobile frames, then click one to go fullscreen.'
   }
   if (site) {
-    return `${site.name} is ${site.status === 'attention' ? 'flagged' : site.status} with a Lighthouse score of ${site.lighthouse} and ${site.visitors7d.toLocaleString()} visitors this week. I can review open PRs, run a performance pass, or draft copy for the next page. What would help?`
+    return `${site.name} is ${STATUS_LABEL[site.status].toLowerCase()}: ${site.reason}. ${site.threads.length} Claude thread${site.threads.length === 1 ? '' : 's'}, ${site.commitsWeek} commits this week.`
   }
-  return "I'm connected to your repos and projects. Ask me for a status check, to fix a bug, to deploy a branch, or open a site to work on it together."
+  return 'Ask me for a status check, what is failing, or open a project to talk about it.'
 }
 
 let nextId = 1
@@ -54,7 +56,7 @@ export function useClaude(siteId: string | null) {
     {
       id: nextId++,
       role: 'claude',
-      text: `Good ${partOfDay()}, Dylan. Volt Gyms has a failing check, everything else is healthy. Ask me anything.`,
+      text: `Good ${partOfDay()}, Dylan. Ask me for a status check, or open a project.`,
     },
   ])
   const [speaking, setSpeaking] = useState(false)
@@ -100,4 +102,4 @@ export function useClaude(siteId: string | null) {
   return { messages, send, speaking, level }
 }
 
-export const SUGGESTIONS = ['Give me a status check', 'Fix the failing build', 'Deploy this branch', 'Open mobile preview']
+export const SUGGESTIONS = ['Give me a status check', "What's failing?", "What's waiting to ship?", 'Show me the mobile view']
