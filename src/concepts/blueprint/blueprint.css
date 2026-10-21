@@ -1,0 +1,443 @@
+.bp {
+  --paper: #164a86;
+  --paper-2: #123e72;
+  --line: #dce9ff;
+  --line-2: rgba(220, 233, 255, 0.6);
+  --line-3: rgba(220, 233, 255, 0.22);
+  --mark: #ffd23f;
+  --alert: #ff6b6b;
+  position: absolute;
+  inset: 0;
+  background: var(--paper);
+  color: var(--line);
+  font-family: 'IBM Plex Mono', monospace;
+}
+.bp-canvas {
+  position: absolute !important;
+  inset: 0;
+  z-index: 0;
+  cursor: grab;
+}
+.bp-canvas:active {
+  cursor: grabbing;
+}
+
+/* Paper texture + sheet frame with grid references */
+.bp::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 40%, transparent 40%, rgba(5, 20, 45, 0.45)),
+    repeating-radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.015) 0 1px, transparent 1px 3px);
+  z-index: 1;
+}
+.bp-sheet {
+  position: absolute;
+  inset: 12px;
+  border: 1.5px solid var(--line-2);
+  pointer-events: none;
+  z-index: 2;
+}
+.bp-sheet::before {
+  content: '';
+  position: absolute;
+  inset: 16px;
+  border: 1px solid var(--line-3);
+}
+.bp-ruler {
+  position: absolute;
+  display: flex;
+  justify-content: space-around;
+  font-size: 10px;
+  color: var(--line-2);
+}
+.bp-ruler.top {
+  top: 2px;
+  left: 16px;
+  right: 16px;
+}
+.bp-ruler.bottom {
+  bottom: 2px;
+  left: 16px;
+  right: 16px;
+}
+.bp-ruler.left,
+.bp-ruler.right {
+  flex-direction: column;
+  top: 16px;
+  bottom: 16px;
+  width: 16px;
+  align-items: center;
+}
+.bp-ruler.left {
+  left: 0;
+}
+.bp-ruler.right {
+  right: 0;
+}
+
+.bp-title,
+.bp-legend,
+.bp-compass,
+.bp-callout,
+.bp-notes,
+.bp-block {
+  position: absolute;
+  z-index: 5;
+}
+
+.bp-title {
+  top: 44px;
+  left: 48px;
+  max-width: 420px;
+  animation: bp-draw 0.9s 0.1s both;
+}
+.bp-title h1 {
+  margin: 0;
+  font: 900 64px/0.9 'Archivo', sans-serif;
+  letter-spacing: -0.035em;
+  color: #fff;
+}
+.bp-title p {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--line-2);
+}
+@keyframes bp-draw {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.bp-legend {
+  top: 200px;
+  left: 48px;
+  width: 330px;
+  animation: bp-draw 0.9s 0.5s both;
+}
+.bp h2 {
+  margin: 0 0 10px;
+  font: 700 13px 'Archivo', sans-serif;
+  color: #fff;
+  border-bottom: 1px solid var(--line-2);
+  padding-bottom: 6px;
+}
+.bp-legend ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--line-2);
+}
+.bp-legend li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bp-legend svg {
+  flex: none;
+  color: var(--line);
+}
+
+.bp-compass {
+  top: 44px;
+  right: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--line);
+}
+.bp-compass svg {
+  transition: transform 0.6s cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+.bp-compass button {
+  all: unset;
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-2);
+  font-size: 11px;
+  transition: background 0.2s, color 0.2s;
+}
+.bp-compass button:hover,
+.bp-compass button:focus-visible {
+  background: var(--mark);
+  color: var(--paper);
+  border-color: var(--mark);
+}
+
+/* building tags */
+.bp-tag-wrap {
+  pointer-events: none;
+}
+.bp-tag {
+  white-space: nowrap;
+  text-align: center;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--line);
+  transition: transform 0.3s, opacity 0.3s;
+  opacity: 0.8;
+}
+.bp-tag b {
+  display: block;
+  font: 700 12px 'Archivo', sans-serif;
+  padding: 2px 6px;
+  border: 1px solid var(--line-2);
+  background: var(--paper);
+}
+.bp-tag span {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+.bp-tag[data-status='attention'] b {
+  border-color: var(--alert);
+}
+.bp-tag[data-active='true'] {
+  opacity: 1;
+  transform: translateY(-6px);
+}
+.bp-tag[data-active='true'] b {
+  background: var(--mark);
+  color: var(--paper);
+  border-color: var(--mark);
+}
+.bp-tag[data-active='true'] span {
+  opacity: 1;
+  transform: none;
+}
+.bp[data-selected='true'] .bp-tag:not([data-active='true']) {
+  opacity: 0.35;
+}
+
+/* Detail callout */
+.bp-callout {
+  top: 110px;
+  right: 48px;
+  width: 380px;
+  padding: 16px;
+  background: rgba(18, 62, 114, 0.88);
+  border: 1.5px solid var(--line);
+  box-shadow: 8px 8px 0 rgba(5, 20, 45, 0.35);
+  animation: bp-unfold 0.6s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+@keyframes bp-unfold {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.bp-callout header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.bp-callout h2 {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  font-size: 16px;
+}
+.bp-callout header p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--line-2);
+}
+.bp-callout header button {
+  all: unset;
+  cursor: pointer;
+  margin-left: auto;
+  font-size: 12px;
+  padding: 2px 6px;
+  border: 1px solid var(--line-3);
+}
+.bp-callout header button:hover {
+  border-color: var(--mark);
+  color: var(--mark);
+}
+.bp-bubble {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid var(--mark);
+  color: var(--mark);
+  display: grid;
+  place-items: center;
+  font: 700 15px 'Archivo', sans-serif;
+}
+.bp-preview {
+  --pv-fg: var(--line);
+  --pv-line: var(--line-2);
+  --pv-on: rgba(255, 210, 63, 0.25);
+  --pv-radius: 0;
+}
+.bp-callout table,
+.bp-block {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+.bp-callout table {
+  margin-top: 12px;
+}
+.bp-callout th,
+.bp-callout td,
+.bp-block th,
+.bp-block td {
+  border: 1px solid var(--line-3);
+  padding: 5px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+.bp-callout th,
+.bp-block th {
+  width: 90px;
+  font-weight: 400;
+  color: var(--line-2);
+}
+
+/* Notes (Claude) */
+.bp-notes {
+  left: 48px;
+  bottom: 44px;
+  width: 380px;
+  animation: bp-draw 0.9s 0.8s both;
+}
+.bp-notes ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: thin;
+}
+.bp-notes li {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.bp-notes li > span {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--mark);
+  color: var(--mark);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+}
+.bp-notes li[data-role='user'] > span {
+  border-color: var(--line-2);
+  color: var(--line-2);
+}
+.bp-notes p {
+  margin: 0;
+}
+.bp-caret {
+  display: inline-block;
+  width: 6px;
+  height: 12px;
+  margin-left: 2px;
+  vertical-align: -1px;
+  background: var(--mark);
+  animation: bp-blink 0.7s steps(2) infinite;
+}
+@keyframes bp-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.bp-sugg {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 10px 0 8px;
+}
+.bp-sugg button,
+.bp-notes form button {
+  all: unset;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px dashed var(--line-2);
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.bp-sugg button:hover,
+.bp-notes form button:not(:disabled):hover {
+  background: var(--mark);
+  color: var(--paper);
+  border-color: var(--mark);
+  border-style: solid;
+}
+.bp-notes form {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1.5px solid var(--line);
+  padding: 6px 0;
+}
+.bp-notes input {
+  all: unset;
+  flex: 1;
+  font-size: 13px;
+}
+.bp-notes input::placeholder {
+  color: var(--line-2);
+}
+.bp-notes form button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Title block */
+.bp-block {
+  right: 48px;
+  bottom: 44px;
+  width: 340px;
+  background: rgba(18, 62, 114, 0.85);
+  border: 1.5px solid var(--line);
+  animation: bp-draw 0.9s 1s both;
+}
+.bp-block td,
+.bp-block th {
+  border-color: var(--line-2);
+}
+.bp-block-name {
+  font: 900 18px 'Archivo', sans-serif !important;
+  color: #fff !important;
+  letter-spacing: -0.01em;
+  padding: 8px !important;
+}
+.bp[data-selected='true'] .bp-block {
+  opacity: 0;
+  pointer-events: none;
+}
+.bp-block {
+  transition: opacity 0.3s;
+}
+@media (max-height: 860px) {
+  .bp-legend {
+    display: none;
+  }
+}
