@@ -1150,3 +1150,81 @@ li[data-unread='true'] .drawer-text b::after {
     transform: translateY(-6px);
   }
 }
+
+/* --- ProjectSheet: the shared project panel ---------------------------------- */
+.psheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 18px;
+  border-radius: var(--ui-radius);
+  background: var(--ui-solid);
+  color: var(--ui-fg);
+  font-family: var(--ui-font);
+  box-shadow: inset 0 0 0 1px var(--ui-line), 0 30px 60px -30px rgba(0, 0, 0, 0.5);
+}
+.psheet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.psheet-head h2 {
+  margin: 0;
+  font: 400 30px/1.1 var(--ui-display);
+}
+.psheet-head p {
+  margin: 8px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ui-muted);
+}
+.psheet-x {
+  all: unset;
+  cursor: pointer;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--ui-radius);
+  font-size: 20px;
+  color: var(--ui-fg);
+  box-shadow: inset 0 0 0 1px var(--ui-line);
+}
+.psheet-x:hover {
+  background: var(--ui-ac);
+  color: var(--ui-ac-fg);
+}
+.psheet-preview {
+  --pv-fg: var(--ui-fg);
+  --pv-line: var(--ui-line);
+  --pv-on: color-mix(in srgb, var(--ui-ac) 25%, transparent);
+  --pv-radius: var(--ui-radius);
+}
+.psheet-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--ui-line);
+}
+.psheet-tabs button {
+  all: unset;
+  cursor: pointer;
+  flex: 1;
+  text-align: center;
+  white-space: nowrap;
+  padding: 8px 4px;
+  font-size: 12.5px;
+  color: var(--ui-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.psheet-tabs button[aria-selected='true'] {
+  color: var(--ui-fg);
+  border-bottom-color: var(--ui-ac);
+}

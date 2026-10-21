@@ -1,0 +1,230 @@
+.ga {
+  --ink: #151515;
+  --ink-2: #7a766e;
+  --paper: #faf9f6;
+  position: absolute;
+  inset: 0;
+  background: #efebe3;
+  color: var(--ink);
+  font-family: 'Jost', system-ui, sans-serif;
+}
+.ga-canvas {
+  position: absolute !important;
+  inset: 0;
+  cursor: ew-resize;
+}
+
+.ga-head {
+  position: absolute;
+  top: 26px;
+  left: 34px;
+  z-index: 5;
+  pointer-events: none;
+  animation: ga-in 1.2s 0.2s both;
+}
+.ga-head p {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.ga-head h1 {
+  margin: 4px 0 6px;
+  font: 400 54px/0.95 'Bodoni Moda', serif;
+  letter-spacing: -0.02em;
+}
+.ga-head h1 em {
+  font-style: italic;
+}
+.ga-head span {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+@keyframes ga-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.ga-placard-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  translate: 50% -100%;
+}
+.ga-placard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 210px;
+  padding: 10px 12px;
+  background: var(--paper);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 10px 24px -14px rgba(0, 0, 0, 0.35);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-2);
+  transition: transform 0.4s, box-shadow 0.4s;
+}
+.ga-placard small {
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.ga-placard b {
+  font: 600 15px/1.2 'Bodoni Moda', serif;
+  color: var(--ink);
+}
+.ga-placard em {
+  margin-top: 4px;
+  font-style: italic;
+  color: #b07a1a;
+}
+.ga-placard em[data-status='broken'] {
+  color: #b3261e;
+}
+.ga-placard[data-active='true'] {
+  transform: translateY(-3px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 18px 30px -14px rgba(0, 0, 0, 0.45);
+}
+.ga-chip {
+  border-radius: 2px;
+}
+
+.ga-now {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  z-index: 5;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  animation: ga-in 0.6s both;
+}
+.ga-now span {
+  font: italic 400 16px 'Bodoni Moda', serif;
+  color: var(--ink-2);
+}
+.ga-now button {
+  all: unset;
+  cursor: pointer;
+  padding: 10px 18px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  transition: background 0.2s;
+}
+.ga-now button:hover {
+  background: #3c3a36;
+}
+
+.ga-rail {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  z-index: 5;
+  translate: -50% 0;
+  display: flex;
+  gap: 4px;
+}
+.ga-rail button {
+  all: unset;
+  cursor: pointer;
+  padding: 8px 3px;
+}
+.ga-rail i {
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: rgba(21, 21, 21, 0.2);
+  transition: background 0.3s, width 0.3s;
+}
+.ga-rail button[aria-current='true'] i {
+  width: 40px;
+  background: var(--ink);
+}
+.ga-rail button[data-status='broken'] i {
+  background: #b3261e;
+}
+.ga-rail button[data-status='building'] i,
+.ga-rail button[data-status='deploying'] i {
+  background: #b07a1a;
+}
+
+.ga-curator {
+  position: absolute;
+  left: 34px;
+  bottom: 30px;
+  z-index: 5;
+  width: min(380px, 30vw);
+}
+.ga-curator p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.ga-curator p b {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-right: 6px;
+}
+.ga-curator form {
+  display: flex;
+  border-bottom: 1px solid var(--ink);
+}
+.ga-curator input {
+  all: unset;
+  flex: 1;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.ga-curator button {
+  all: unset;
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.ga-curator button:disabled {
+  opacity: 0.35;
+}
+
+.ga-sheet {
+  position: absolute;
+  top: 70px;
+  right: 18px;
+  bottom: 18px;
+  width: min(560px, 40vw);
+  z-index: 6;
+  pointer-events: none;
+}
+.ga-sheet > * {
+  pointer-events: auto;
+  animation: ga-sheet 0.7s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+@keyframes ga-sheet {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+}
+.ga[data-selected='true'] .ga-rail,
+.ga[data-selected='true'] .ga-curator {
+  opacity: 0;
+  pointer-events: none;
+}
+.ga[data-selected='true'] .ga-placard:not([data-active='true']) {
+  opacity: 0.4;
+}
+.ga-rail,
+.ga-curator {
+  transition: opacity 0.3s;
+}

@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Check, Page, Project, Thread } from '../data/types'
-import { useData } from '../data/store'
+import { useData, useProject } from '../data/store'
 import { STATUS_LABEL, fmtBytes, fmtDur, fmtMs, hostOf, relTime } from '../data/derive'
 import { Icon } from './icons'
-import { enterStage, sourcesFor } from './Preview'
+import { DevicePair, enterStage, sourcesFor } from './Preview'
 import { Sparkline } from './bits'
 
 // Building blocks for project detail panels. Every concept composes these and
@@ -332,5 +332,56 @@ export function PageDetail({ project, page }: { project: Project; page: Page }) 
         </div>
       )}
     </div>
+  )
+}
+
+type SheetTab = 'threads' | 'activity' | 'health' | 'issues'
+
+/**
+ * A complete project panel: name, status, big desktop + phone previews, links,
+ * facts and tabs. Concepts that don't need a bespoke panel use this and theme it
+ * with their --ui-* tokens. `extra` renders between the facts and the tabs.
+ */
+export function ProjectSheet({ id, onClose, className = '', extra, labels }: { id: string; onClose: () => void; className?: string; extra?: ReactNode; labels?: Partial<Record<SheetTab, string>> }) {
+  const p = useProject(id)
+  const [tab, setTab] = useState<SheetTab>('threads')
+  if (!p) return null
+  const name: Record<SheetTab, string> = {
+    threads: `${labels?.threads ?? 'Threads'} (${p.threads.length})`,
+    activity: labels?.activity ?? 'Activity',
+    health: labels?.health ?? 'Health',
+    issues: `${labels?.issues ?? 'Issues'} (${p.issues.length})`,
+  }
+  return (
+    <section className={`psheet ${className}`} aria-label={p.name}>
+      <header className="psheet-head">
+        <div>
+          <h2>{p.name}</h2>
+          <p>
+            <StatusPill project={p} /> <span>{p.reason}</span>
+          </p>
+        </div>
+        <button className="psheet-x" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </header>
+      <DevicePair project={p} className="psheet-preview" />
+      <Links project={p} />
+      <Facts project={p} />
+      {extra}
+      <div className="psheet-tabs" role="tablist">
+        {(['threads', 'activity', 'health', 'issues'] as const).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+            {name[t]}
+          </button>
+        ))}
+      </div>
+      <div className="psheet-tab">
+        {tab === 'threads' && <ThreadList project={p} />}
+        {tab === 'activity' && <ActivityFeed project={p} limit={12} />}
+        {tab === 'health' && <HealthBlock project={p} />}
+        {tab === 'issues' && <IssueList project={p} />}
+      </div>
+    </section>
   )
 }
