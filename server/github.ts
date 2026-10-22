@@ -1,4 +1,5 @@
-import type { Commit, Deployment, DeployState, Issue, Page, Pull, Run, RunState } from '../src/data/types.ts'
+import type { Change, Commit, Deployment, DeployState, Issue, Page, Pull, Run, RunState, Thread } from '../src/data/types.ts'
+import { cleanBody, describeChange } from '../src/data/describe.ts'
 import { log } from './util.ts'
 
 // Minimal GitHub REST client. Every GET is conditional (ETag), and GitHub does
@@ -152,6 +153,21 @@ export interface RepoData {
   repoPages: Page[]
   deployPending: boolean
   claudeProjectUrl: string | null
+  /** last push time of each claude/ branch */
+  branchPushed: Record<string, string>
+}
+
+// A commit never changes, so its date is fetched once per SHA and kept.
+const commitDates = new Map<string, string>()
+
+async function commitDate(gh: GitHub, base: string, sha: string): Promise<string | undefined> {
+  if (!sha) return undefined
+  const hit = commitDates.get(sha)
+  if (hit) return hit
+  const r = await gh.get<Json>(`${base}/commits/${sha}`)
+  const date: string | undefined = r.data?.commit?.committer?.date ?? r.data?.commit?.author?.date
+  if (date) commitDates.set(sha, date)
+  return date
 }
 
 const deployFinal = new Map<number, { state: DeployState; url: string | null; logUrl: string | null }>()
@@ -222,6 +238,7 @@ export async function loadRepo(gh: GitHub, repo: RepoInfo, opts: { light?: boole
         sessionUrl: links.session,
         checks: 'none',
         reviewRequested: (p.requested_reviewers?.length ?? 0) > 0 && p.state === 'open',
+        headSha: p.head?.sha ?? '',
       } satisfies Pull
     }),
     runs,
@@ -243,6 +260,24 @@ export async function loadRepo(gh: GitHub, repo: RepoInfo, opts: { light?: boole
     })
 
   const branches = (branchesR.data ?? []).map((b) => b.name as string)
+
+  // when each Claude PR / branch was last pushed (one request per new commit, then cached)
+  const branchPushed: Record<string, string> = {}
+  await Promise.all([
+    ...pulls
+      .filter((p) => p.claude)
+      .slice(0, 12)
+      .map(async (p) => {
+        p.pushed = await commitDate(gh, base, p.headSha ?? '').catch(() => undefined)
+      }),
+    ...(branchesR.data ?? [])
+      .filter((b) => String(b.name).startsWith('claude/'))
+      .slice(0, 12)
+      .map(async (b) => {
+        const d = await commitDate(gh, base, b.commit?.sha).catch(() => undefined)
+        if (d) branchPushed[b.name] = d
+      }),
+  ])
 
   // framework / host from the root of the repo
   const names = (rootR.data ?? []).map((f) => String(f.name))
@@ -296,6 +331,7 @@ export async function loadRepo(gh: GitHub, repo: RepoInfo, opts: { light?: boole
     repoPages,
     deployPending,
     claudeProjectUrl,
+    branchPushed,
   }
 }
 
@@ -425,4 +461,62 @@ export function pagesFromTree(paths: string[], framework: string): Page[] {
 
 export function logRate(gh: GitHub) {
   if (gh.rate) log(`GitHub rate limit: ${gh.rate.remaining}/${gh.rate.limit}`)
+}
+
+// --- What one thread's push changed (fetched when you open it) ---------------------------
+
+const toFiles = (list: Json[] | undefined): Change['files'] =>
+  (list ?? []).map((f) => ({
+    path: String(f.filename),
+    status: f.status === 'added' || f.status === 'removed' || f.status === 'renamed' ? f.status : 'modified',
+    additions: Number(f.additions ?? 0),
+    deletions: Number(f.deletions ?? 0),
+  }))
+
+const toCommits = (list: Json[] | undefined): Change['commits'] =>
+  (list ?? []).map((c) => ({
+    sha: String(c.sha).slice(0, 7),
+    message: String(c.commit?.message ?? '').split('\n')[0],
+    date: c.commit?.committer?.date ?? c.commit?.author?.date ?? '',
+    url: c.html_url ?? '',
+  }))
+
+function finish(files: Change['files'], commits: Change['commits'], body: string | null, url: string | null): Change {
+  // newest commit first, like the rest of the dashboard
+  const sorted = [...commits].sort((a, b) => b.date.localeCompare(a.date))
+  return {
+    summary: describeChange(files, sorted),
+    body: cleanBody(body),
+    commits: sorted,
+    files: [...files].sort((a, b) => b.additions + b.deletions - (a.additions + a.deletions)),
+    additions: files.reduce((a, f) => a + f.additions, 0),
+    deletions: files.reduce((a, f) => a + f.deletions, 0),
+    url,
+  }
+}
+
+export async function loadChange(gh: GitHub, repo: RepoInfo, t: Thread, d: RepoData | undefined): Promise<Change> {
+  const base = `/repos/${repo.full}`
+  if (t.prNumber) {
+    const [pr, commits, files] = await Promise.all([
+      gh.get<Json>(`${base}/pulls/${t.prNumber}`),
+      gh.get<Json[]>(`${base}/pulls/${t.prNumber}/commits?per_page=100`),
+      gh.get<Json[]>(`${base}/pulls/${t.prNumber}/files?per_page=100`),
+    ])
+    return finish(toFiles(files.data ?? []), toCommits(commits.data ?? []), pr.data?.body ?? null, t.prUrl ?? pr.data?.html_url ?? null)
+  }
+  if (t.branch && t.branch !== repo.defaultBranch) {
+    const r = await gh.get<Json>(`${base}/compare/${encodeURIComponent(repo.defaultBranch)}...${encodeURIComponent(t.branch)}`)
+    return finish(toFiles(r.data?.files), toCommits(r.data?.commits), null, r.data?.html_url ?? null)
+  }
+  // a session that committed straight to the default branch: add up its commits
+  const own = (d?.commits ?? []).filter((c) => c.sessionUrl && c.sessionUrl === t.id).slice(0, 10)
+  const full = await Promise.all(own.map((c) => gh.get<Json>(`${base}/commits/${c.sha}`)))
+  const files = new Map<string, Change['files'][number]>()
+  for (const r of full)
+    for (const f of toFiles(r.data?.files)) {
+      const was = files.get(f.path)
+      files.set(f.path, was ? { ...f, status: was.status === 'added' ? 'added' : f.status, additions: was.additions + f.additions, deletions: was.deletions + f.deletions } : f)
+    }
+  return finish([...files.values()], toCommits(full.map((r) => r.data).filter(Boolean)), null, own[0]?.url ?? null)
 }

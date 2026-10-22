@@ -4,7 +4,7 @@ import { OrthographicCamera } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Project } from '../../data/types'
 import { useData } from '../../data/store'
-import { signals } from '../../data/derive'
+import { signals, threadsByPush } from '../../data/derive'
 import { useApp } from '../../store'
 import { Anchor } from '../../shared/Labels'
 import { since, useImpulses, type Impulses } from '../../shared/pulse'
@@ -195,7 +195,9 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
   const part = useBp((s) => (selected ? s.part : null))
   const hoverPart = useBp((s) => (selected ? s.hoverPart : null))
   const sig = signals(project)
-  const threads = project.threads.slice(0, MAX_HUTS)
+  // newest push first; hut 0 sits at the back and rises highest when opened, so it reads as the top of the stack
+  const threads = threadsByPush(project).slice(0, MAX_HUTS)
+  const slot = (k: number) => threads.length - 1 - k
 
   const root = useRef<THREE.Group>(null!)
   const floorRefs = useRef<THREE.Group[]>([])
@@ -258,7 +260,7 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
     hutRefs.current.forEach((h, k) => {
       if (!h) return
       h.position.x = W / 2 + 0.55 + e * 1.1
-      h.position.y = e * (0.25 + k * 0.5)
+      h.position.y = e * (0.25 + slot(k) * 0.5)
     })
 
     // lift the hovered/selected building, fade the rest while one is opened up
@@ -427,7 +429,7 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
             ref={(g) => {
               if (g) hutRefs.current[k] = g
             }}
-            position={[W / 2 + 0.55, 0, D / 2 - 0.25 - k * 0.5]}
+            position={[W / 2 + 0.55, 0, D / 2 - 0.25 - slot(k) * 0.5]}
             userData={{ part: `hut:${k}`, box: [0.4, 0.3, 0.36, 0.15] }}
           >
             <group position={[0, 0.15, 0]} scale={[0.4, 0.3, 0.36]}>

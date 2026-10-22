@@ -144,3 +144,6 @@ export function mean(xs: (number | null | undefined)[]) {
   const v = xs.filter((x): x is number => typeof x === 'number')
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null
 }
+
+/** A project's Claude threads, newest push first (threads that never pushed go by last activity). */
+export const threadsByPush = (p: Project) => [...p.threads].sort((a, b) => (b.pushed ?? b.updated).localeCompare(a.pushed ?? a.updated))

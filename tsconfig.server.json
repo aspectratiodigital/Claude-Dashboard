@@ -20,6 +20,7 @@
   "include": [
     "server",
     "src/data/types.ts",
+    "src/data/describe.ts",
     "vite.config.ts"
   ]
 }

@@ -1,9 +1,9 @@
 import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
-import type { Health, Note, NoteKind, Page, Project, Quality, Snapshot, Status, Thread } from '../src/data/types.ts'
+import type { Change, Health, Note, NoteKind, Page, Project, Quality, Snapshot, Status, Thread } from '../src/data/types.ts'
 import { githubAuth, loadConfig, loadSettings, psiKey, saveSettings, type Config } from './config.ts'
-import { GitHub, listRepos, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
+import { GitHub, listRepos, loadChange, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
 import { scanLocalSessions, type LocalSession } from './claude.ts'
 import { findClaude, runClaude, stopAll } from './assistant.ts'
@@ -39,6 +39,7 @@ class Engine {
   health = new Map<string, Health>()
   sitePages = new Map<string, { at: number; pages: Page[] }>()
   inspected = new Map<string, Page>()
+  changes = new Map<string, Change>()
   psiAt = new Map<string, number>()
   sessions: LocalSession[] = []
   projects: Project[] = []
@@ -280,6 +281,7 @@ class Engine {
         source: p.sessionUrl || p.threadUrl ? 'claude-web' : 'pr',
         status: p.state === 'open' ? (ago(p.updated) < 20 * MIN ? 'working' : 'open') : p.state,
         updated: p.updated,
+        pushed: p.pushed,
         branch: p.branch,
         url: p.threadUrl ?? p.sessionUrl,
         prUrl: p.url,
@@ -299,6 +301,7 @@ class Engine {
         source: 'claude-web',
         status: ago(cs[0].date) < 20 * MIN ? 'working' : 'merged',
         updated: cs[0].date,
+        pushed: cs[0].date,
         url,
         commits: cs.length,
         summary: `${cs.length} commit${cs.length === 1 ? '' : 's'} on ${repo.defaultBranch}`,
@@ -306,7 +309,7 @@ class Engine {
     }
     for (const b of d.branches) {
       if (!b.startsWith('claude/') || used.has(b)) continue
-      out.push({ id: `branch-${b}`, title: b.replace(/^claude\//, '').replace(/[-_]/g, ' '), source: 'claude-web', status: 'open', updated: repo.pushedAt, branch: b, commits: 0, summary: 'Branch without a pull request' })
+      out.push({ id: `branch-${b}`, title: b.replace(/^claude\//, '').replace(/[-_]/g, ' '), source: 'claude-web', status: 'open', updated: d.branchPushed?.[b] ?? repo.pushedAt, pushed: d.branchPushed?.[b], branch: b, commits: 0, summary: 'Branch without a pull request' })
     }
     const key = repo.full.toLowerCase()
     for (const s of this.sessions) {
@@ -324,7 +327,8 @@ class Engine {
         resume: `claude --resume ${s.id}`,
       })
     }
-    return out.sort((a, b) => b.updated.localeCompare(a.updated)).slice(0, 24)
+    // newest push first; threads with no push of their own (local sessions) go by last activity
+    return out.sort((a, b) => (b.pushed ?? b.updated).localeCompare(a.pushed ?? a.updated)).slice(0, 24)
   }
 
   pages(id: string, d: RepoData): Page[] {
@@ -637,6 +641,25 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       engine.inspected.set(key, info)
       engine.rebuild()
       return json(res, 200, info)
+    }
+
+    case 'GET /api/change': {
+      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
+      const t = p?.threads.find((x) => x.id === url.searchParams.get('thread'))
+      const repo = engine.repos.find((r) => r.full === p?.repo)
+      if (!p || !t || !repo) return json(res, 404, { error: 'thread not found' })
+      if (!engine.gh) return json(res, 503, { error: 'GitHub is not connected' })
+      // keyed on the last push, so a new push fetches again
+      const key = `${p.id}|${t.id}|${t.pushed ?? t.updated}`
+      const hit = engine.changes.get(key)
+      if (hit) return json(res, 200, hit)
+      try {
+        const change = await loadChange(engine.gh, repo, t, engine.data.get(repo.full.toLowerCase()))
+        engine.changes.set(key, change)
+        return json(res, 200, change)
+      } catch (e) {
+        return json(res, 502, { error: (e as Error).message })
+      }
     }
 
     case 'POST /api/health': {

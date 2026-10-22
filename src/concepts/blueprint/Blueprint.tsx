@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { BlueprintScene, LETTERS, useLots, type Lot } from './Scene'
 import { PART_NAME, useBp } from './state'
-import type { Project } from '../../data/types'
+import type { Project, Thread } from '../../data/types'
 import { useData, useProject } from '../../data/store'
-import { STATUS_LABEL, domainOf, fmtDur, fmtMs, relTime, signals } from '../../data/derive'
+import { STATUS_LABEL, domainOf, fmtDur, fmtMs, relTime, signals, threadsByPush } from '../../data/derive'
+import { useChange } from '../../data/change'
 import { useApp } from '../../store'
 import { useClaude, SUGGESTIONS } from '../../shared/useClaude'
 import { DevicePair } from '../../shared/Preview'
@@ -155,7 +156,9 @@ function PartLabels({ id }: { id: string }) {
       const page = p.pages[j]
       return [`floor:${j}`, `Floor ${j + 1} · ${page?.path ?? '/'}`, page?.title ?? (j === lot - 1 && p.pages.length > lot ? `+${p.pages.length - lot} more pages` : 'page')]
     }),
-    ...p.threads.slice(0, 5).map((t, k): [string, string, string] => [`hut:${k}`, `Hut ${k + 1} · thread`, t.title]),
+    ...threadsByPush(p)
+      .slice(0, 5)
+      .map((t, k): [string, string, string] => [`hut:${k}`, `${k === 0 ? 'Latest push' : `Hut ${k + 1}`} · ${relTime(t.pushed ?? t.updated)}`, t.title]),
     ['foundation', 'Foundation · build quality', p.quality.grade ? `grade ${p.quality.grade}` : 'no CI yet'],
   ]
   return (
@@ -345,7 +348,7 @@ function Section({ project: p }: { project: Project }) {
         ))}
       </nav>
       <div className="bp-scroll" key={part}>
-        <h3>{part.startsWith('floor:') ? `Floor ${Number(part.slice(6)) + 1}: a page of the site` : part.startsWith('hut:') ? `Hut ${Number(part.slice(4)) + 1}: a Claude thread` : PART_NAME[part]}</h3>
+        <h3>{part.startsWith('floor:') ? `Floor ${Number(part.slice(6)) + 1}: a page of the site` : part.startsWith('hut:') ? (part === 'hut:0' ? 'Latest push: a Claude thread' : `Hut ${Number(part.slice(4)) + 1}: a Claude thread`) : PART_NAME[part]}</h3>
         {part === 'roof' && <Speed project={p} />}
         {part === 'sign' && <Seo project={p} />}
         {part === 'foundation' && <Build project={p} />}
@@ -491,7 +494,8 @@ function Floors({ project: p, index }: { project: Project; index: number }) {
 
 function Huts({ project: p, index }: { project: Project; index: number }) {
   const setPart = useBp((s) => s.setPart)
-  const t = p.threads[index]
+  const threads = threadsByPush(p)
+  const t = threads[index]
   if (!t) return <p className="bp-help">No Claude threads on this project yet.</p>
   return (
     <>
@@ -499,22 +503,27 @@ function Huts({ project: p, index }: { project: Project; index: number }) {
         <ThreadItem t={t} />
       </ul>
       {t.summary && <p className="bp-help">{t.summary}</p>}
+      <Changes project={p} thread={t} />
       <table>
         <tbody>
           <tr>
             <th>Where</th>
             <td>{t.source === 'claude-web' ? 'Claude on the web' : t.source === 'claude-local' ? 'Claude Code on this computer' : 'Pull request'}</td>
           </tr>
+          {t.pushed && (
+            <tr>
+              <th>Last push</th>
+              <td>
+                {new Date(t.pushed).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} ({relTime(t.pushed)})
+              </td>
+            </tr>
+          )}
           {t.branch && (
             <tr>
               <th>Branch</th>
               <td>{t.branch}</td>
             </tr>
           )}
-          <tr>
-            <th>Commits</th>
-            <td>{t.commits}</td>
-          </tr>
           {t.resume && (
             <tr>
               <th>Resume</th>
@@ -525,16 +534,16 @@ function Huts({ project: p, index }: { project: Project; index: number }) {
           )}
         </tbody>
       </table>
-      {p.threads.length > 1 && (
+      {threads.length > 1 && (
         <>
-          <h4>Other huts</h4>
+          <h4>All huts, newest push first</h4>
           <ul className="bp-floors">
-            {p.threads.slice(0, 5).map((x, k) => (
+            {threads.slice(0, 5).map((x, k) => (
               <li key={x.id}>
                 <button aria-pressed={k === index} onClick={() => setPart(`hut:${k}`)}>
                   <b>{x.title}</b>
                   <span>
-                    {x.status} · {relTime(x.updated)}
+                    {x.status} · pushed {relTime(x.pushed ?? x.updated)}
                   </span>
                 </button>
               </li>
@@ -543,6 +552,92 @@ function Huts({ project: p, index }: { project: Project; index: number }) {
         </>
       )}
     </>
+  )
+}
+
+const FILE_STATUS = { added: 'new', modified: 'changed', removed: 'deleted', renamed: 'renamed' } as const
+
+/** What the thread's push changed, in plain English, then the detail. */
+function Changes({ project, thread }: { project: Project; thread: Thread }) {
+  const { change: c, loading, error } = useChange(project, thread)
+  if (loading) return <p className="bp-help">Reading what this push changed…</p>
+  if (error) return <p className="bp-help">Couldn’t load the changes: {error}</p>
+  if (!c) return null
+  return (
+    <section className="bp-change">
+      <h4>What changed</h4>
+      {c.summary.map((line, i) => (
+        <p key={i}>{line}</p>
+      ))}
+      {c.body && <Body text={c.body} />}
+      {c.commits.length > 0 && (
+        <>
+          <h4>Commits, newest first</h4>
+          <ul className="bp-commits">
+            {c.commits.slice(0, 12).map((x) => (
+              <li key={x.sha}>
+                <a href={x.url || undefined} target="_blank" rel="noreferrer">
+                  <b>{x.message}</b>
+                  <span>
+                    {x.sha} · {relTime(x.date)}
+                  </span>
+                </a>
+              </li>
+            ))}
+            {c.commits.length > 12 && <li className="bp-help">and {c.commits.length - 12} earlier</li>}
+          </ul>
+        </>
+      )}
+      {c.files.length > 0 && (
+        <details className="bp-files">
+          <summary>
+            {c.files.length} file{c.files.length === 1 ? '' : 's'} · <ins>+{c.additions}</ins> <del>−{c.deletions}</del>
+          </summary>
+          <ul>
+            {c.files.slice(0, 40).map((f) => (
+              <li key={f.path} data-status={f.status}>
+                <em>{FILE_STATUS[f.status]}</em>
+                <span title={f.path}>{f.path}</span>
+                <small>
+                  <ins>+{f.additions}</ins> <del>−{f.deletions}</del>
+                </small>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {c.url && (
+        <a className="bp-open" href={c.url} target="_blank" rel="noreferrer">
+          See it on GitHub
+        </a>
+      )}
+    </section>
+  )
+}
+
+/** Just enough Markdown for a PR description: headings, bullets, paragraphs, bold and code. */
+function Body({ text }: { text: string }) {
+  const blocks = text.split(/\n{2,}/).slice(0, 14)
+  const inline = (s: string) =>
+    s
+      .split(/(\*\*[^*]+\*\*|`[^`]+`)/)
+      .map((x, i) => (x.startsWith('**') ? <b key={i}>{x.slice(2, -2)}</b> : x.startsWith('`') ? <code key={i}>{x.slice(1, -1)}</code> : x.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')))
+  return (
+    <div className="bp-body">
+      {blocks.map((b, i) => {
+        const lines = b.split('\n').filter((l) => l.trim())
+        if (/^#{1,6}\s/.test(lines[0] ?? '') && lines.length === 1) return <h5 key={i}>{inline(lines[0].replace(/^#+\s*/, ''))}</h5>
+        if (lines.every((l) => /^\s*([-*]|\d+\.)\s/.test(l)))
+          return (
+            <ul key={i}>
+              {lines.map((l, j) => (
+                <li key={j}>{inline(l.replace(/^\s*([-*]|\d+\.)\s+(\[[ x]\]\s*)?/, ''))}</li>
+              ))}
+            </ul>
+          )
+        return <p key={i}>{inline(lines.map((l) => l.replace(/^#+\s*/, '')).join(' '))}</p>
+      })}
+    </div>
   )
 }
 
