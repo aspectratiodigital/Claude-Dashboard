@@ -301,7 +301,7 @@ export function PageDetail({ project, page }: { project: Project; page: Page }) 
           <dd>{p.source === 'sitemap' ? 'Sitemap' : p.source === 'repo' ? 'Repo' : 'Site nav'}</dd>
         </div>
         {p.file && (
-          <div>
+          <div className="sh-fact-wide">
             <dt>File</dt>
             <dd title={p.file}>{p.file.split('/').slice(-2).join('/')}</dd>
           </div>
@@ -320,7 +320,7 @@ export function PageDetail({ project, page }: { project: Project; page: Page }) 
         )}
       </dl>
       {p.description && <p className="sh-desc">{p.description}</p>}
-      {p.checks ? <ChecksList checks={p.checks} /> : project.url && <button className="sh-btn" onClick={() => load(page)} disabled={loading}>{loading ? 'Checking…' : 'Check this page'}</button>}
+      {p.checks ? <ChecksList checks={p.checks} /> : project.url && <button className="sh-btn sh-check-btn" onClick={() => load(page)} disabled={loading}>{loading ? 'Checking…' : 'Check this page'}</button>}
       {src && (
         <div className="sh-row">
           <button className="sh-btn" onClick={() => enterStage({ projectId: project.id, device: 'desktop', source: src, path: page.path })}>

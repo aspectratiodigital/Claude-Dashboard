@@ -10,7 +10,7 @@ import { scanLocalSessions, type LocalSession } from './claude.ts'
 import { ask, findClaude, runClaude, stopAll } from './assistant.ts'
 import { changePrompt } from '../src/data/describe.ts'
 import { deleteConversation, host, listConversations, loadShared, oneDriveSuggestion, saveConversation, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
-import { blankStore, cleanDomain, loadStore, type ShopifyCred } from './shopify.ts'
+import { blankStore, cleanDomain, loadCatalog, loadProduct, loadStore, type ShopifyCred } from './shopify.ts'
 import { MAX_UPLOAD, UPLOADS, WORKSPACE, openOnDesktop, opensSafely, readRaw, saveUpload, sendFile, uploadPath, within } from './files.ts'
 import { addKnowledgeFile, knowledgeDir, knowledgeFor, readKnowledge, removeKnowledgeFile, saveInstructions } from './knowledge.ts'
 import { addSuggested, listExtras } from './extras.ts'
@@ -739,6 +739,19 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       if (patch.projects) saveSharedProjects(patch.projects)
       setTimeout(() => engine.tick(true).catch(() => {}), 50)
       return json(res, 200, { ok: true })
+    }
+
+    case 'GET /api/shopify/products':
+    case 'GET /api/shopify/product': {
+      // a store's products (or one product, opened up), read when you open the products view
+      if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
+      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
+      const domain = p?.store?.domain
+      const cred = domain ? loadSettings().shopifyTokens?.[domain] : null
+      if (!domain || !cred) return json(res, 404, { error: 'This site’s store isn’t connected on this computer' })
+      const id = url.searchParams.get('id')
+      const out = route === 'GET /api/shopify/product' ? (id && /^\d+$/.test(id) ? await loadProduct(domain, cred, id) : { error: 'bad product id' }) : await loadCatalog(domain, cred, url.searchParams.get('fresh') === '1')
+      return 'error' in out ? json(res, 502, out) : json(res, 200, out)
     }
 
     case 'POST /api/shopify': {
