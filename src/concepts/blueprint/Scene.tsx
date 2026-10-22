@@ -199,6 +199,7 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
   const pal = usePalette()
   // newest push first; hut 0 sits at the back and rises highest when opened, so it reads as the top of the stack
   const threads = threadsByPush(project).slice(0, MAX_HUTS)
+  const store = project.store
   const slot = (k: number) => threads.length - 1 - k
 
   const root = useRef<THREE.Group>(null!)
@@ -207,6 +208,9 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
   const sign = useRef<THREE.Group>(null!)
   const found = useRef<THREE.Group>(null!)
   const hutRefs = useRef<THREE.Group[]>([])
+  const shop = useRef<THREE.Group>(null!)
+  const coin = useRef<THREE.Mesh>(null!)
+  const lastOrder = useRef<{ id: string | null; at: number }>({ id: null, at: -99 })
   const hl = useRef<THREE.Group>(null!)
   const crane = useRef<THREE.Group>(null!)
   const jib = useRef<THREE.Group>(null!)
@@ -230,6 +234,8 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
       lot: new THREE.LineBasicMaterial({ color: pal.line, transparent: true, opacity: 0.3 }),
       ping: new THREE.MeshBasicMaterial({ color: pal.line, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }),
       light: new THREE.MeshBasicMaterial({ color: pal.mark, transparent: true, toneMapped: false }),
+      coin: new THREE.MeshBasicMaterial({ color: pal.go, transparent: true, opacity: 0, toneMapped: false }),
+      shopLight: new THREE.MeshBasicMaterial({ color: pal.go, toneMapped: false }),
     }),
     [pal],
   )
@@ -246,6 +252,7 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
     ex.current = damp(ex.current, dissect ? 1 : 0, 3.2, dt)
     const e = ex.current
     const fh = FLOOR_H + e * GAP
+    const fx0 = !othersDissected
 
     // floors rise one by one on first show, and spread apart when dissected
     floorRefs.current.forEach((f, j) => {
@@ -264,6 +271,23 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
       h.position.x = W / 2 + 0.55 + e * 1.1
       h.position.y = e * (0.25 + slot(k) * 0.5)
     })
+    // the shopfront slides out to the left when opened up; a coin rises on each new order
+    if (shop.current) {
+      shop.current.position.x = -W / 2 - 0.55 - e * 1.1
+      const o = store?.orders[0]?.id ?? null
+      if (o !== lastOrder.current.id) {
+        if (lastOrder.current.id !== null) lastOrder.current.at = t
+        lastOrder.current.id = o
+      }
+      const c = (t - lastOrder.current.at) / 1.6
+      coin.current.visible = c < 1 && fx0
+      if (c < 1) {
+        coin.current.position.y = 0.6 + c * 0.9
+        coin.current.rotation.y = t * 6
+        mats.coin.opacity = 1 - c * c
+      }
+      mats.shopLight.color.set(store?.error ? pal.alert : store?.connected ? pal.go : pal.line)
+    }
 
     // lift the hovered/selected building, fade the rest while one is opened up
     root.current.position.y = damp(root.current.position.y, (hovered || selected) && !dissect ? 0.3 : 0, 8, dt)
@@ -287,6 +311,7 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
       else if (key === 'foundation') target = found.current
       else if (key.startsWith('floor:')) target = floorRefs.current[Math.min(Number(key.slice(6)), lot.floors - 1)] ?? null
       else if (key.startsWith('hut:')) target = hutRefs.current[Number(key.slice(4))] ?? null
+      else if (key === 'store') target = shop.current
     }
     hl.current.visible = !!target
     if (target) {
@@ -445,6 +470,33 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
             {dissect && <Anchor id={`bp-part-hut:${k}`} position={[0.2, 0.3, 0]} />}
           </group>
         ))}
+
+        {/* shopfront: the Shopify store the site is built on */}
+        {store && (
+          <group ref={shop} position={[-W / 2 - 0.55, 0, -D / 2 + 0.5]} userData={{ part: 'store', box: [0.62, 0.62, 0.84, 0.31] }}>
+            <group position={[0, 0.25, 0]} scale={[0.56, 0.5, 0.8]}>
+              <Block fill={mats.hutFill} edge={mats.hutEdge} part="store" />
+            </group>
+            {/* awning over the shop window, facing out */}
+            <group position={[-0.36, 0.44, 0]} rotation={[0, 0, 0.5]} scale={[0.26, 0.03, 0.84]}>
+              <Block fill={mats.fill} edge={mats.edge} part="store" />
+            </group>
+            {/* shop window and door */}
+            <group position={[-0.285, 0.2, 0.12]} scale={[0.01, 0.24, 0.42]}>
+              <Block fill={mats.hlFill} edge={mats.hutEdge} part="store" />
+            </group>
+            <group position={[-0.285, 0.15, -0.26]} scale={[0.01, 0.3, 0.14]}>
+              <Block fill={mats.fill} edge={mats.hutEdge} part="store" />
+            </group>
+            <mesh position={[0, 0.55, 0.3]} material={mats.shopLight} raycast={noRay}>
+              <sphereGeometry args={[0.045, 10, 8]} />
+            </mesh>
+            <mesh ref={coin} material={mats.coin} visible={false} raycast={noRay}>
+              <cylinderGeometry args={[0.1, 0.1, 0.025, 20]} />
+            </mesh>
+            {dissect && <Anchor id={`bp-part-store`} position={[-0.28, 0.5, 0.4]} />}
+          </group>
+        )}
 
         {/* highlight over the hovered / picked part */}
         <group ref={hl} visible={false}>

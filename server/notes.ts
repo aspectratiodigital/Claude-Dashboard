@@ -23,6 +23,8 @@ export const LEVEL: Record<NoteKind, NoteLevel> = {
   down: 'critical',
   up: 'success',
   perf: 'warning',
+  order: 'success',
+  stock: 'warning',
 }
 
 const H = 3_600_000
@@ -99,7 +101,30 @@ export function diffProject(prev: Project | undefined, next: Project): Draft[] {
   if (h0.psi && h1.psi && h1.psi.at !== h0.psi.at && h0.psi.scores.performance - h1.psi.scores.performance >= 8) {
     out.push(draft(next, 'perf', h1.psi.at, `${n} got slower`, `Performance ${h0.psi.scores.performance} → ${h1.psi.scores.performance}`, h1.url ?? undefined))
   }
+
+  // Shopify: new orders since the last look, and products that just ran low
+  const s0 = prev.store
+  const s1 = next.store
+  if (s0?.connected && s1?.connected && s0.checked !== s1.checked) {
+    const seen = new Set(s0.orders.map((o) => o.id))
+    const fresh = s1.orders.filter((o) => !seen.has(o.id) && ago(o.at) < 6 * H)
+    if (fresh.length) {
+      const total = fresh.reduce((a, o) => a + o.total, 0)
+      const title = fresh.length === 1 ? `New order on ${n}` : `${fresh.length} new orders on ${n}`
+      out.push(draft(next, 'order', fresh[0].id, title, `${fresh.map((o) => o.name).join(', ')} · ${money(total, s1.currency)}`, fresh.length === 1 ? fresh[0].url : `${s1.adminUrl}/orders`, fresh[0].at))
+    }
+    const low = s1.lowStock.filter((x) => !s0.lowStock.some((y) => y.title === x.title))
+    if (low.length) out.push(draft(next, 'stock', `${low[0].title}:${s1.checked}`, `Running low on ${n}`, low.map((x) => `${x.title} (${x.qty} left)`).join(', '), `${s1.adminUrl}/products`))
+  }
   return out
+}
+
+export function money(n: number, currency: string | null) {
+  try {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency ?? 'GBP', maximumFractionDigits: n >= 1000 ? 0 : 2 }).format(n)
+  } catch {
+    return n.toFixed(2)
+  }
 }
 
 /** On the very first run there's nothing to compare with, so recent history becomes read notes. */
@@ -143,6 +168,8 @@ export function testNote(p: Project, kind: NoteKind): Draft {
     down: [`${p.name} is down`, `${p.url ?? 'site'} answered 503`],
     up: [`${p.name} is back up`, `${p.url ?? 'site'} answered in 212ms`],
     perf: [`${p.name} got slower`, 'Performance 92 → 78'],
+    order: [`New order on ${p.name}`, '#1042 · £64.00'],
+    stock: [`Running low on ${p.name}`, 'Ethiopia Guji 250g (3 left)'],
   }
   return { ...draft(p, kind, `test-${Date.now()}`, t[kind][0], t[kind][1], p.url ?? undefined), test: true }
 }

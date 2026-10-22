@@ -5,6 +5,7 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import type { ServerResponse } from 'node:http'
 import type { Project } from '../src/data/types.ts'
 import { DATA_DIR } from './util.ts'
+import { storeBrief } from './shopify.ts'
 
 // The Claude bar: runs your own Claude Code (`claude -p`) in the selected
 // project's folder and streams what it says and does back to the dashboard as
@@ -74,6 +75,7 @@ function brief(p: Project) {
     p.url ? `  live: ${p.url}` : '',
     open.length ? `  open PRs: ${open.map((x) => `#${x.number} ${x.title} [checks ${x.checks}]`).join('; ')}` : '',
     p.issues.length ? `  open issues: ${p.issues.slice(0, 6).map((x) => `#${x.number} ${x.title}`).join('; ')}` : '',
+    p.store ? `  ${storeBrief(p.store)}` : '',
   ]
     .filter(Boolean)
     .join('\n')
@@ -93,6 +95,8 @@ function contextFor(projects: Project[], site: Project | null, folder: string | 
     lines.push(folder ? `You're working in its local folder: ${folder}` : `There's no local copy of ${site.repo} on this computer yet. You can still answer from the state above.`)
     const runs = site.runs.slice(0, 3).map((r) => `${r.name} on ${r.branch}: ${r.status} (${r.url})`)
     if (runs.length) lines.push(`Recent CI runs: ${runs.join('; ')}`)
+    if (site.store && site.store.headless && site.store.headless !== 'Liquid theme')
+      lines.push(`The site is a headless Shopify storefront (${site.store.headless}) on ${site.store.domain}. Products, carts and checkout come from the Shopify Storefront API, so keep that wiring intact, and check Shopify's docs (or the Shopify Dev MCP if it's installed) before changing API calls.`)
   }
   return lines.join('\n')
 }

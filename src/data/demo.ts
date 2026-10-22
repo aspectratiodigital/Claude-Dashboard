@@ -1,4 +1,4 @@
-import type { Commit, Health, Note, NoteKind, Page, Project, Pull, Run, Status, Thread } from './types'
+import type { Commit, Health, Note, NoteKind, Page, Project, Pull, Run, Status, Store, Thread } from './types'
 import { LEVEL_OF } from './derive'
 
 // Demo data, used until GitHub is connected (or when the app runs without its
@@ -16,11 +16,13 @@ interface Seed {
   reason: string
   commits: number
   pages: string[]
+  /** the Shopify store the site is built on, and how */
+  shop?: { domain: string; headless: string; name: string }
 }
 
 const SEEDS: Seed[] = [
   { name: 'Aspect Ratio Digital', repo: 'ard-site', framework: 'Astro', host: 'Netlify', accent: '#7c5cff', url: 'https://aspectratio.digital', status: 'live', reason: 'Deployed 2h ago', commits: 17, pages: ['/', '/work', '/services', '/about', '/contact', '/work/kiln-coffee'] },
-  { name: 'Kiln Coffee Roasters', repo: 'kiln-coffee', framework: 'Next.js', host: 'Vercel', accent: '#e0873f', url: 'https://kilncoffee.co.uk', status: 'building', reason: 'CI running on feature/subscriptions', commits: 24, pages: ['/', '/shop', '/subscriptions', '/origins', '/cart', '/journal'] },
+  { name: 'Kiln Coffee Roasters', repo: 'kiln-coffee', framework: 'Next.js', host: 'Vercel', accent: '#e0873f', url: 'https://kilncoffee.co.uk', status: 'building', reason: 'CI running on feature/subscriptions', commits: 24, pages: ['/', '/shop', '/subscriptions', '/origins', '/cart', '/journal'], shop: { domain: 'kiln-coffee.myshopify.com', headless: 'Hydrogen', name: 'Kiln Coffee' } },
   { name: 'Northfield Dental', repo: 'northfield-dental', framework: 'Astro', host: 'Netlify', accent: '#1aa6b7', url: 'https://northfielddental.com', status: 'live', reason: 'Deployed yesterday', commits: 3, pages: ['/', '/treatments', '/treatments/invisalign', '/team', '/book'] },
   { name: 'Volt Gyms', repo: 'volt-gyms', framework: 'Next.js', host: 'Vercel', accent: '#c6f432', url: 'https://voltgyms.fit', status: 'broken', reason: 'CI is failing on main', commits: 31, pages: ['/', '/timetable', '/locations', '/locations/leeds', '/join', '/classes'] },
   { name: 'Marlow Estates', repo: 'marlow-estates', framework: 'Astro', host: 'Cloudflare', accent: '#3d6b4f', url: 'https://marlowestates.co.uk', status: 'attention', reason: '2 open issues', commits: 9, pages: ['/', '/buy', '/rent', '/valuation', '/contact'] },
@@ -52,6 +54,34 @@ const MESSAGES = [
   'Refactor nav into a component',
   'Compress images in /public',
 ]
+
+function demoStore(shop: NonNullable<Seed['shop']>, r: () => number): Store {
+  const admin = `https://admin.shopify.com/store/${shop.domain.replace('.myshopify.com', '')}`
+  const items = ['Ethiopia Guji 250g', 'House Espresso 1kg', 'Colombia Huila 250g', 'Decaf Swiss Water 250g', 'Brew Kit', 'Subscription: 2 bags a month']
+  const orders = Array.from({ length: 8 }, (_, k) => {
+    const id = String(5_401_000_000 + 1042 - k)
+    return { id, name: `#${1042 - k}`, total: Math.round((14 + r() * 70) * 100) / 100, at: iso((k * 47 + 6) * MIN), status: k < 3 ? 'Paid' : 'Fulfilled', url: `${admin}/orders/${id}` }
+  })
+  return {
+    domain: shop.domain,
+    headless: shop.headless,
+    connected: true,
+    error: null,
+    name: shop.name,
+    currency: 'GBP',
+    adminUrl: admin,
+    ordersToday: 9,
+    salesToday: 412.6,
+    sales7: [388, 512, 297, 640, 455, 702, 412.6],
+    orders,
+    lowStock: [
+      { title: items[0], qty: 3, url: `${admin}/products` },
+      { title: items[3], qty: 1, url: `${admin}/products` },
+    ],
+    products: 34,
+    checked: iso(MIN),
+  }
+}
 
 function make(seed: Seed, i: number): Project {
   const r = rng(i * 17 + 3)
@@ -211,6 +241,7 @@ function make(seed: Seed, i: number): Project {
       staleBranches: 1,
       grade: seed.status === 'broken' ? 'D' : seed.status === 'attention' ? 'B' : 'A',
     },
+    store: seed.shop ? demoStore(seed.shop, r) : null,
   }
 }
 
@@ -229,6 +260,7 @@ const SEQUENCES: NoteKind[][] = [
   ['review', 'merged', 'deploying', 'deployed'],
   ['down', 'up'],
   ['perf'],
+  ['order', 'order', 'stock'],
 ]
 
 const TEXT: Record<NoteKind, (n: string) => [string, string]> = {
@@ -247,6 +279,8 @@ const TEXT: Record<NoteKind, (n: string) => [string, string]> = {
   down: (n) => [`${n} is down`, 'The site answered 503'],
   up: (n) => [`${n} is back up`, 'Answered in 240ms'],
   perf: (n) => [`${n} got slower`, 'Response time 220ms → 940ms'],
+  order: (n) => [`New order on ${n}`, '#1043 · £38.50'],
+  stock: (n) => [`${n} is running low`, 'Colombia Huila 250g (4 left)'],
 }
 
 let nid = 0
@@ -288,6 +322,17 @@ export function applyDemo(p: Project, kind: NoteKind): Project {
       return { ...set('broken', "The live site isn't responding (503)"), health: { ...p.health, up: false, code: 503 } }
     case 'up':
       return { ...set('live', 'Back up'), health: { ...p.health, up: true, code: 200 } }
+    case 'order': {
+      if (!p.store) return p
+      const s = p.store
+      const no = Number(s.orders[0]?.name.slice(1) ?? 1042) + 1
+      const total = Math.round((18 + Math.random() * 60) * 100) / 100
+      const order = { id: String(5_401_000_000 + no), name: `#${no}`, total, at: new Date().toISOString(), status: 'Paid', url: `${s.adminUrl}/orders` }
+      const sales7 = [...s.sales7.slice(0, 6), Math.round((s.sales7[6] + total) * 100) / 100]
+      return { ...p, store: { ...s, orders: [order, ...s.orders].slice(0, 8), ordersToday: s.ordersToday + 1, salesToday: Math.round((s.salesToday + total) * 100) / 100, sales7 } }
+    }
+    case 'stock':
+      return p.store ? { ...p, store: { ...p.store, lowStock: [{ title: 'Colombia Huila 250g', qty: 4, url: `${p.store.adminUrl}/products` }, ...p.store.lowStock.filter((x) => x.title !== 'Colombia Huila 250g')] } } : p
     default:
       return p
   }
@@ -301,7 +346,9 @@ export function startSimulator(get: () => Project[], emit: (p: Project, kind: No
     const list = get()
     if (!seq.length || !target) {
       seq = [...SEQUENCES[Math.floor(Math.random() * SEQUENCES.length)]]
-      target = list[Math.floor(Math.random() * Math.max(1, list.length - 1))]
+      // shop news goes to a site with a store
+      const shops = list.filter((p) => p.store?.connected)
+      target = seq[0] === 'order' && shops.length ? shops[Math.floor(Math.random() * shops.length)] : list[Math.floor(Math.random() * Math.max(1, list.length - 1))]
     }
     const kind = seq.shift()!
     if (target) emit(target, kind)

@@ -155,6 +155,15 @@ export interface RepoData {
   claudeProjectUrl: string | null
   /** last push time of each claude/ branch */
   branchPushed: Record<string, string>
+  /** a Shopify store this site is built on, found in the code */
+  shopify: ShopifyFound | null
+}
+
+export interface ShopifyFound {
+  /** the store's myshopify.com domain, when the code names it */
+  domain: string | null
+  /** how the site talks to Shopify: 'Hydrogen', 'Storefront API', 'Buy SDK' or 'Liquid theme' */
+  headless: string
 }
 
 // A commit never changes, so its date is fetched once per SHA and kept.
@@ -314,6 +323,19 @@ export async function loadRepo(gh: GitHub, repo: RepoInfo, opts: { light?: boole
     if (t.data?.tree) repoPages = pagesFromTree(t.data.tree.map((x: Json) => String(x.path)), framework)
   }
 
+  // Shopify, from package.json and the example env file, again only when the branch moves
+  let shopify = prev?.shopify ?? null
+  if (head && (!prev || prev.commits[0]?.sha !== head.slice(0, 7))) {
+    const raw = (f: string) => gh.get<string>(`${base}/contents/${f}?ref=${encodeURIComponent(repo.defaultBranch)}`, 'application/vnd.github.raw').then((r) => (typeof r.data === 'string' ? r.data : ''))
+    const envFile = names.find((n) => /^\.env\.(example|sample|template|dist)$/.test(n))
+    const [pkg, env, toml] = await Promise.all([
+      names.includes('package.json') ? raw('package.json') : '',
+      envFile ? raw(envFile) : '',
+      names.includes('shopify.app.toml') ? raw('shopify.app.toml') : '',
+    ])
+    shopify = detectShopify(names, pkg, env + '\n' + toml)
+  }
+
   return {
     commits,
     activity,
@@ -332,6 +354,7 @@ export async function loadRepo(gh: GitHub, repo: RepoInfo, opts: { light?: boole
     deployPending,
     claudeProjectUrl,
     branchPushed,
+    shopify,
   }
 }
 
@@ -430,6 +453,32 @@ function detectHost(names: string[]): string | null {
   if (names.includes('firebase.json')) return 'Firebase'
   if (names.includes('CNAME')) return 'GitHub Pages'
   return null
+}
+
+/** Spots a Shopify storefront: a headless one (Hydrogen, Storefront API, Buy SDK) or a Liquid theme. */
+export function detectShopify(names: string[], pkg: string, env: string): ShopifyFound | null {
+  const deps = (() => {
+    try {
+      const j = JSON.parse(pkg)
+      return Object.keys({ ...j.dependencies, ...j.devDependencies })
+    } catch {
+      return []
+    }
+  })()
+  const dep = (re: RegExp) => deps.some((d) => re.test(d))
+  const headless = dep(/^@shopify\/(hydrogen|remix-oxygen)$/)
+    ? 'Hydrogen'
+    : dep(/^@shopify\/(hydrogen-react|storefront-api-client|storefront-kit-react)$/) || /STOREFRONT_(API_)?(ACCESS_)?TOKEN/i.test(env)
+      ? 'Storefront API'
+      : dep(/^shopify-buy$/)
+        ? 'Buy SDK'
+        : names.includes('layout') && names.includes('sections') && names.includes('config')
+          ? 'Liquid theme'
+          : null
+  const m = env.match(/([a-z0-9][a-z0-9-]*\.myshopify\.com)/i)
+  if (!headless && !m) return null
+  const domain = m && !/^(your|my|example|demo|store|shop)(-store|-shop)?\./i.test(m[1]) ? m[1].toLowerCase() : null
+  return { domain, headless: headless ?? 'Storefront API' }
 }
 
 /** Turns a repo file list into the site's routes, for the common frameworks. */

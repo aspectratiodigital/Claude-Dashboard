@@ -838,6 +838,106 @@
   color: var(--mark);
 }
 
+/* --- Store: the shopfront panel -------------------------------------------------------- */
+button.bp-link {
+  all: unset;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--mark);
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+.bp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.bp-actions .bp-open {
+  text-decoration: none;
+}
+.bp-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.bp-kpis figure {
+  margin: 0;
+  padding: 8px;
+  border: 1px dashed var(--line-3);
+  display: grid;
+  gap: 4px;
+}
+.bp-kpis b {
+  font: 700 16px 'Archivo', sans-serif;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.bp-kpis figcaption,
+.bp-spark span {
+  font-size: 10px;
+  color: var(--line-2);
+}
+.bp-spark {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+  color: var(--go);
+}
+.bp-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--line-3);
+}
+.bp-form label {
+  display: grid;
+  gap: 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--line-2);
+}
+.bp-form input {
+  font: 12px 'IBM Plex Mono', monospace;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-3);
+  padding: 6px 8px;
+  outline: none;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.bp-form input:focus {
+  border-color: var(--mark);
+}
+.bp-form code {
+  color: var(--ink);
+}
+.bp-form a {
+  color: var(--mark);
+}
+.bp-seg {
+  display: flex;
+  gap: 4px;
+}
+.bp-seg button {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px dashed var(--line-2);
+}
+.bp-seg button[aria-pressed='true'] {
+  background: var(--mark);
+  color: var(--paper);
+  border: 1px solid var(--mark);
+}
+.bp-open:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* --- Themes: Blueprint (default), Light and Dark ---------------------------------------- */
 .app[data-theme='light'] .bp {
   --paper: #f3f1ec;

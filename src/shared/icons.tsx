@@ -102,6 +102,44 @@ export const Icon = {
       <path d="M2 13l10 5 10-5" />
     </S>
   ),
+  bag: (p: P) => (
+    <S {...p}>
+      <path d="M5 8h14l-1 12H6z" />
+      <path d="M9 8V6a3 3 0 0 1 6 0v2" />
+    </S>
+  ),
+  paperclip: (p: P) => (
+    <S {...p}>
+      <path d="M20 11.5 12 19.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L9.7 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7" />
+    </S>
+  ),
+  file: (p: P) => (
+    <S {...p}>
+      <path d="M14 3H6v18h12V7z" />
+      <path d="M14 3v4h4" />
+    </S>
+  ),
+  folder: (p: P) => (
+    <S {...p}>
+      <path d="M3 6h6l2 2h10v11H3z" />
+    </S>
+  ),
+  download: (p: P) => (
+    <S {...p}>
+      <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+    </S>
+  ),
+  copy: (p: P) => (
+    <S {...p}>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V4H4v12h4" />
+    </S>
+  ),
+  bolt: (p: P) => (
+    <S {...p}>
+      <path d="M13 2 4 14h7l-1 8 9-12h-7z" />
+    </S>
+  ),
   speed: (p: P) => (
     <S {...p}>
       <path d="M4 18a8 8 0 1 1 16 0" />
@@ -187,5 +225,14 @@ export function KindIcon({ kind, size = 16 }: { kind: NoteKind; size?: number })
       )
     case 'perf':
       return Icon.speed(p)
+    case 'order':
+      return Icon.bag(p)
+    case 'stock':
+      return (
+        <S {...p}>
+          <path d="M3 8l9-5 9 5v8l-9 5-9-5z" />
+          <path d="M12 12v4M12 8.5v.01" />
+        </S>
+      )
   }
 }

@@ -14,6 +14,7 @@ import { LabelLayer } from '../../shared/Labels'
 import { SceneCanvas } from '../../shared/SceneCanvas'
 import { NoteChip } from '../../shared/pulse'
 import { ChecksList, Links, PageDetail, Score, ThreadItem } from '../../shared/sheet'
+import { StoreConnect, StorePanel, storeLine } from './Store'
 import './blueprint.css'
 
 const ROWS = ['1', '2', '3', '4', '5']
@@ -168,6 +169,7 @@ function PartLabels({ id }: { id: string }) {
       .slice(0, 5)
       .map((t, k): [string, string, string] => [`hut:${k}`, `${k === 0 ? 'Latest push' : `Hut ${k + 1}`} · ${relTime(t.pushed ?? t.updated)}`, t.title]),
     ['foundation', 'Foundation · build quality', p.quality.grade ? `grade ${p.quality.grade}` : 'no CI yet'],
+    ...(p.store ? [['store', 'Shopfront · Shopify', storeLine(p)] as [string, string, string]] : []),
   ]
   return (
     <>
@@ -234,6 +236,13 @@ function Legend() {
             <path d="M13 4l4 6-4 6-4-6z" fill="none" stroke="currentColor" />
           </svg>
           Drone over the roof: Claude is working
+        </li>
+        <li>
+          <svg width="26" height="20" viewBox="0 0 26 20" aria-hidden>
+            <path d="M6 18V9h14v9M4 9l3-4h12l3 4" fill="none" stroke="currentColor" />
+            <circle cx="13" cy="3" r="2" fill="var(--go)" />
+          </svg>
+          Shopfront: the site's Shopify store; a coin rises on each order
         </li>
       </ul>
     </section>
@@ -328,6 +337,10 @@ function Overview({ project: p, floors, onOpen, onClaude }: { project: Project; 
             </td>
           </tr>
           <tr>
+            <th>Shop</th>
+            <td>{p.store ? `${p.store.name ?? (p.store.domain || 'Shopify')} · ${storeLine(p)}` : <AttachStore project={p} />}</td>
+          </tr>
+          <tr>
             <th>Last change</th>
             <td>{p.commits[0] ? `${p.commits[0].message} (${relTime(p.commits[0].date)})` : 'No commits yet'}</td>
           </tr>
@@ -353,6 +366,18 @@ function Overview({ project: p, floors, onOpen, onClaude }: { project: Project; 
   )
 }
 
+function AttachStore({ project: p }: { project: Project }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button className="bp-link" onClick={() => setOpen((v) => !v)}>
+        {open ? 'Hide' : 'Attach a Shopify store'}
+      </button>
+      {open && <StoreConnect project={p} />}
+    </>
+  )
+}
+
 function Section({ project: p }: { project: Project }) {
   const part = useBp((s) => s.part) ?? 'roof'
   const setPart = useBp((s) => s.setPart)
@@ -362,6 +387,7 @@ function Section({ project: p }: { project: Project }) {
     ['floor:0', `Pages (${p.pages.length})`],
     ['hut:0', `Threads (${p.threads.length})`],
     ['foundation', 'Build quality'],
+    ...(p.store ? [['store', 'Store'] as [string, string]] : []),
   ]
   const groupOf = (k: string) => (k.startsWith('floor:') ? 'floor:0' : k.startsWith('hut:') ? 'hut:0' : k)
   return (
@@ -378,6 +404,7 @@ function Section({ project: p }: { project: Project }) {
         {part === 'roof' && <Speed project={p} />}
         {part === 'sign' && <Seo project={p} />}
         {part === 'foundation' && <Build project={p} />}
+        {part === 'store' && <StorePanel project={p} />}
         {part.startsWith('floor:') && <Floors project={p} index={Number(part.slice(6))} />}
         {part.startsWith('hut:') && <Huts project={p} index={Number(part.slice(4))} />}
       </div>

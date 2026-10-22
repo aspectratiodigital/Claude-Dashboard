@@ -4,7 +4,7 @@ import { create } from 'zustand'
 // ("dissected") and which part of it you're looking at.
 //
 // Part keys: 'roof' (site speed), 'sign' (SEO), 'foundation' (build quality),
-// 'floor:N' (a page of the site), 'hut:N' (a Claude thread).
+// 'floor:N' (a page of the site), 'hut:N' (a Claude thread), 'store' (its Shopify store).
 
 interface BpState {
   dissect: boolean
@@ -33,4 +33,5 @@ export const PART_NAME: Record<string, string> = {
   roof: 'Roof: site speed',
   sign: 'Sign: SEO',
   foundation: 'Foundation: build quality',
+  store: 'Shopfront: the Shopify store',
 }

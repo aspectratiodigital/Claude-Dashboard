@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
-import type { Change, Health, Note, NoteKind, Page, Project, Quality, Snapshot, Status, Thread } from '../src/data/types.ts'
+import type { Change, Health, Note, NoteKind, Page, Project, Quality, Snapshot, Status, Store, Thread } from '../src/data/types.ts'
 import { githubAuth, loadConfig, loadSettings, projectSettings, psiKey, saveSettings, type Config } from './config.ts'
 import { GitHub, listRepos, loadChange, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
@@ -10,6 +10,7 @@ import { scanLocalSessions, type LocalSession } from './claude.ts'
 import { ask, findClaude, runClaude, stopAll } from './assistant.ts'
 import { changePrompt } from '../src/data/describe.ts'
 import { deleteConversation, host, listConversations, loadShared, oneDriveSuggestion, saveConversation, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
+import { blankStore, cleanDomain, loadStore, type ShopifyCred } from './shopify.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
@@ -67,6 +68,9 @@ class Engine {
   }
   psiAt = new Map<string, number>()
   sessions: LocalSession[] = []
+  /** Shopify stores read with the Admin API, by domain */
+  stores = new Map<string, Store>()
+  storeAt = new Map<string, number>()
   projects: Project[] = []
   prev = new Map<string, Project>()
   notes: Note[] = []
@@ -96,6 +100,7 @@ class Engine {
     this.timers.push(setInterval(() => this.sites().catch((e) => log('site checks failed', e)), MIN))
     this.timers.push(setInterval(() => this.scanSessions(), 20_000))
     this.timers.push(setInterval(() => this.ping(), 25_000))
+    this.timers.push(setInterval(() => this.shops().catch((e) => log('shop checks failed', e)), 30_000))
     setTimeout(() => this.sites().catch(() => {}), 4000)
   }
 
@@ -192,6 +197,31 @@ class Engine {
     this.rebuild()
   }
 
+  // --- Shopify stores: every 2 minutes for each one with a token on this computer ---------
+
+  /** The store a site is built on: set by hand in Settings, else found in its code. */
+  storeOf(repo: RepoInfo, d: RepoData): { domain: string; headless: string | null } | null {
+    const o = this.cfg.projects[repo.name] ?? this.cfg.projects[slug(repo.name)] ?? {}
+    // a storefront whose code doesn't name its store still gets a shopfront, waiting for the address
+    const domain = (o.shopify && cleanDomain(o.shopify)) || d.shopify?.domain || (d.shopify ? '' : null)
+    return domain === null ? null : { domain, headless: d.shopify?.headless ?? null }
+  }
+
+  async shops(force = false) {
+    const tokens = loadSettings().shopifyTokens ?? {}
+    const jobs = this.projects
+      .filter((p) => p.store && tokens[p.store.domain])
+      .map((p) => async () => {
+        const { domain, headless } = p.store!
+        if (!force && Date.now() - (this.storeAt.get(domain) ?? 0) < 2 * MIN) return
+        this.storeAt.set(domain, Date.now())
+        this.stores.set(domain, await loadStore(domain, tokens[domain]!, headless))
+      })
+    if (!jobs.length) return
+    await pool(jobs, 3)
+    this.rebuild()
+  }
+
   scanSessions() {
     const next = safe(() => scanLocalSessions(), this.sessions)
     const sig = (s: LocalSession[]) => s.map((x) => x.id + x.updated).join()
@@ -258,6 +288,8 @@ class Engine {
     const threads = this.threads(repo, d)
     const { status, reason } = statusOf(d, health, repo.defaultBranch, threads)
     const pages = this.pages(id, d)
+    const shop = this.storeOf(repo, d)
+    const store = shop ? { ...(this.stores.get(shop.domain) ?? blankStore(shop.domain, shop.headless)), headless: shop.headless } : null
     const theme = health.themeColor && /^#[0-9a-f]{6}$/i.test(health.themeColor) && !/^#(f{6}|0{6})$/i.test(health.themeColor) ? health.themeColor : null
     return {
       id,
@@ -289,6 +321,7 @@ class Engine {
       pages,
       health,
       quality: qualityOf(d, health),
+      store,
     }
   }
 
@@ -561,7 +594,7 @@ function sameOrigin(req: IncomingMessage) {
   }
 }
 
-const NOTE_KINDS: NoteKind[] = ['build', 'build-ok', 'build-fail', 'deploying', 'deployed', 'deploy-fail', 'issue', 'pr', 'merged', 'review', 'push', 'claude', 'down', 'up', 'perf']
+const NOTE_KINDS: NoteKind[] = ['build', 'build-ok', 'build-fail', 'deploying', 'deployed', 'deploy-fail', 'issue', 'pr', 'merged', 'review', 'push', 'claude', 'down', 'up', 'perf', 'order', 'stock']
 
 export async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
   const url = new URL(req.url ?? '/', 'http://localhost')
@@ -618,7 +651,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
 
     case 'GET /api/settings': {
       const s = loadSettings()
-      return json(res, 200, { owner: engine.cfg.owner, github: engine.auth, login: engine.login, hasToken: !!s.githubToken, psi: !!psiKey(), projects: projectSettings(s), syncDir: s.syncDir ?? '', syncing: !!syncDir(), oneDrive: oneDriveSuggestion() })
+      return json(res, 200, { owner: engine.cfg.owner, github: engine.auth, login: engine.login, hasToken: !!s.githubToken, psi: !!psiKey(), projects: projectSettings(s), shopify: Object.keys(s.shopifyTokens ?? {}), syncDir: s.syncDir ?? '', syncing: !!syncDir(), oneDrive: oneDriveSuggestion() })
     }
 
     case 'POST /api/settings': {
@@ -634,6 +667,29 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       if (patch.projects) saveSharedProjects(patch.projects)
       setTimeout(() => engine.tick(true).catch(() => {}), 50)
       return json(res, 200, { ok: true })
+    }
+
+    case 'POST /api/shopify': {
+      // Connect (or disconnect, with an empty token) a site's Shopify store.
+      const body = await readBody(req)
+      const p = engine.projects.find((x) => x.id === body.projectId)
+      const domain = typeof body.domain === 'string' ? cleanDomain(body.domain) : (p?.store?.domain ?? null)
+      if (!domain) return json(res, 400, { error: 'That doesn\'t look like a Shopify store. Use the xxx.myshopify.com address.' })
+      const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+      const token: ShopifyCred | null = str(body.clientId) && str(body.secret) ? { id: str(body.clientId), secret: str(body.secret) } : str(body.token) || null
+      if (token) {
+        const test = await loadStore(domain, token, p?.store?.headless ?? null)
+        if (!test.connected) return json(res, 400, { error: test.error ?? 'Shopify didn\'t accept that token' })
+        engine.stores.set(domain, test)
+        engine.storeAt.set(domain, Date.now())
+      } else {
+        engine.stores.delete(domain)
+      }
+      saveSettings({ shopifyTokens: { [domain]: token }, ...(p ? { projects: { [p.repo.split('/').pop()!]: { shopify: domain } } } : {}) })
+      if (p) saveSharedProjects({ [p.repo.split('/').pop()!]: { shopify: domain } })
+      engine.cfg = loadConfig()
+      engine.rebuild()
+      return json(res, 200, { ok: true, domain })
     }
 
     case 'POST /api/notes/read': {
