@@ -120,7 +120,9 @@ One building per site. Its footprint grows with this week's commits and it has o
 
 Click a building to select it. Click it again (or press `Enter`) to **open it up**: it separates into a cross-section you can click through, with the roof for site speed, the sign for SEO, a floor for each page, the foundation for build quality, and huts for Claude's threads.
 
-The huts are stacked newest push first, so the top one (labelled **Latest push**) is the most recent work on that site. Click a hut to see what that push changed in plain English: which pages, components, styles and files it touched and how many lines, the pull request's description, its commits newest first, and the full file list with a link to GitHub.
+The huts are stacked newest push first, so the top one (labelled **Latest push**) is the most recent work on that site. Click a hut to see **What changed**: a short plain-English description of what that push does to the site, written by your Claude Code (with its quickest model) the first time you open it and kept after that. Without Claude Code it shows the pull request's own summary instead.
+
+**Themes:** Settings, then **Appearance**, switches between Blueprint, Light (off-white with near-black lines) and Dark (off-black with soft white lines).
 
 ![A building opened up](docs/screenshots/blueprint-dissect.jpg)
 
@@ -130,7 +132,13 @@ The other six dashboards (Nexus, Helix, Township, Gallery, Arcade, Reef) were re
 
 The **Notes with Claude** panel runs your own Claude Code, signed in with your Claude account, so there's no API key or extra billing. Pick a project in **About**, or click its building, and Claude works in that project's folder on this computer. It finds the folder from where you last used Claude Code on that repo, or from **Folder** if you've set one for that project in Settings. With **All projects** it answers from the live state of every site.
 
-Claude can read files and look at git history freely. Before it edits a file or runs a command, the panel shows what it wants to do with **Allow** and **No** buttons. Each project keeps its conversation until you close the app.
+Claude can read files and look at git history freely. Before it edits a file or runs a command, the panel shows what it wants to do with **Allow** and **No** buttons.
+
+- **Model and effort:** pick them under the message box. **Default** uses whatever Claude Code is set to on this computer. The choice is remembered.
+- **In a building:** select a building and click **Open Claude**. Its details panel turns into Claude for that project, with every conversation you've had about it since the app opened. **Details** (or `Esc`) goes back.
+- **Fullscreen:** the expand button on the notes panel, or **Open fullscreen** in a building's Claude panel, opens a full Claude workspace: your projects down the left, that project's threads in the middle, and the conversation on the right. Start as many threads as you like with **+ New thread**; each one runs on its own, so Claude can work on several things at once. `Esc` closes it.
+
+Conversations last until you close the app.
 
 To set it up once, in PowerShell:
 

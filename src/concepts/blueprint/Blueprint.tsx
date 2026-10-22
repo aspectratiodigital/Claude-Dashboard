@@ -6,7 +6,8 @@ import { useData, useProject } from '../../data/store'
 import { STATUS_LABEL, domainOf, fmtDur, fmtMs, relTime, signals, threadsByPush } from '../../data/derive'
 import { useChange } from '../../data/change'
 import { useApp } from '../../store'
-import { useClaude, SUGGESTIONS } from '../../shared/useClaude'
+import { useClaude, convsFor, hasTalk } from '../../shared/claude'
+import { ClaudeFull, Notes, ProjectClaude } from './Claude'
 import { DevicePair } from '../../shared/Preview'
 import { useClock, Sparkline } from '../../shared/bits'
 import { LabelLayer } from '../../shared/Labels'
@@ -44,7 +45,13 @@ export default function Blueprint() {
     // Escape closes the section first, then the selection (capture so it runs before the app's handler)
     const esc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || useApp.getState().stage || useApp.getState().settingsOpen || useApp.getState().notesOpen) return
-      if (useBp.getState().dissect) {
+      if (useClaude.getState().full) {
+        e.stopImmediatePropagation()
+        useClaude.getState().closeFull()
+      } else if (useBp.getState().claude) {
+        e.stopImmediatePropagation()
+        useBp.getState().setClaude(false)
+      } else if (useBp.getState().dissect) {
         e.stopImmediatePropagation()
         useBp.getState().setDissect(false)
       }
@@ -116,6 +123,7 @@ export default function Blueprint() {
       {selectedId && <Callout key={selectedId} id={selectedId} lots={lots} />}
       <Notes />
       <TitleBlock />
+      <ClaudeFull />
     </div>
   )
 }
@@ -259,31 +267,36 @@ function Callout({ id, lots }: { id: string; lots: Lot[] }) {
   const lot = lots.find((l) => l.project.id === id)
   const select = useApp((s) => s.select)
   const dissect = useBp((s) => s.dissect)
+  const claude = useBp((s) => s.claude)
   const setDissect = useBp((s) => s.setDissect)
+  const setClaude = useBp((s) => s.setClaude)
   if (!p || !lot) return null
+  const mode = claude ? 'claude' : dissect ? 'section' : 'detail'
   return (
-    <aside className="bp-callout" data-dissect={dissect} key={String(dissect)}>
+    <aside className="bp-callout" data-dissect={dissect} data-mode={mode} key={mode}>
       <header>
         <span className="bp-bubble">{lot.letter}</span>
         <div>
           <h2>
-            {dissect ? 'Section' : 'Detail'} {lot.letter}
-            {dissect ? `-${lot.letter}` : ''}: {p.name}
+            {claude ? `Claude: ${p.name}` : `${dissect ? 'Section' : 'Detail'} ${lot.letter}${dissect ? `-${lot.letter}` : ''}: ${p.name}`}
           </h2>
           <p>
             {domainOf(p)}, {STATUS_LABEL[p.status].toLowerCase()}. {p.reason}.
           </p>
         </div>
-        <button onClick={() => (dissect ? setDissect(false) : select(null))} aria-label={dissect ? 'Close the section' : 'Close detail'}>
-          {dissect ? 'Close up' : '✕'}
+        <button onClick={() => (claude ? setClaude(false) : dissect ? setDissect(false) : select(null))} aria-label={claude ? 'Back to the details' : dissect ? 'Close the section' : 'Close detail'}>
+          {claude ? 'Details' : dissect ? 'Close up' : '✕'}
         </button>
       </header>
-      {dissect ? <Section project={p} /> : <Overview project={p} floors={lot.floors} onOpen={() => setDissect(true)} />}
+      {claude ? <ProjectClaude project={p} /> : dissect ? <Section project={p} /> : <Overview project={p} floors={lot.floors} onOpen={() => setDissect(true)} onClaude={() => setClaude(true)} />}
     </aside>
   )
 }
 
-function Overview({ project: p, floors, onOpen }: { project: Project; floors: number; onOpen: () => void }) {
+function Overview({ project: p, floors, onOpen, onClaude }: { project: Project; floors: number; onOpen: () => void; onClaude: () => void }) {
+  const convs = useClaude((s) => s.convs)
+  const talks = convsFor(convs, p.id).filter(hasTalk)
+  const working = talks.some((c) => c.speaking)
   return (
     <div className="bp-scroll">
       <DevicePair project={p} className="bp-preview" />
@@ -323,6 +336,19 @@ function Overview({ project: p, floors, onOpen }: { project: Project; floors: nu
       <button className="bp-open" onClick={onOpen}>
         Open up the building <span>or click it again</span>
       </button>
+      <section className="bp-claude-cta">
+        <h4>Claude</h4>
+        <p className="bp-help">
+          {working
+            ? 'Claude is working on this project now.'
+            : talks.length
+              ? `${talks.length} conversation${talks.length === 1 ? '' : 's'} about ${p.name} since the app opened, newest: “${talks[0].title}”.`
+              : `Ask Claude about ${p.name}, or have it work in the project's folder.`}
+        </p>
+        <button className="bp-open" onClick={onClaude}>
+          Open Claude <span>{talks.length ? 'carry on where you left off' : 'in this panel'}</span>
+        </button>
+      </section>
     </div>
   )
 }
@@ -555,181 +581,28 @@ function Huts({ project: p, index }: { project: Project; index: number }) {
   )
 }
 
-const FILE_STATUS = { added: 'new', modified: 'changed', removed: 'deleted', renamed: 'renamed' } as const
-
-/** What the thread's push changed, in plain English, then the detail. */
+/** What the thread's latest push changed, in a few plain-English sentences. */
 function Changes({ project, thread }: { project: Project; thread: Thread }) {
   const { change: c, loading, error } = useChange(project, thread)
-  if (loading) return <p className="bp-help">Reading what this push changed…</p>
-  if (error) return <p className="bp-help">Couldn’t load the changes: {error}</p>
-  if (!c) return null
   return (
     <section className="bp-change">
       <h4>What changed</h4>
-      {c.summary.map((line, i) => (
-        <p key={i}>{line}</p>
-      ))}
-      {c.body && <Body text={c.body} />}
-      {c.commits.length > 0 && (
+      {loading ? (
+        <p className="bp-help">
+          <i className="bp-caret" /> Reading this push and writing a summary…
+        </p>
+      ) : error ? (
+        <p className="bp-help">Couldn’t load the changes: {error}</p>
+      ) : c ? (
         <>
-          <h4>Commits, newest first</h4>
-          <ul className="bp-commits">
-            {c.commits.slice(0, 12).map((x) => (
-              <li key={x.sha}>
-                <a href={x.url || undefined} target="_blank" rel="noreferrer">
-                  <b>{x.message}</b>
-                  <span>
-                    {x.sha} · {relTime(x.date)}
-                  </span>
-                </a>
-              </li>
-            ))}
-            {c.commits.length > 12 && <li className="bp-help">and {c.commits.length - 12} earlier</li>}
-          </ul>
+          <p>{c.summary}</p>
+          {c.url && (
+            <a className="bp-link" href={c.url} target="_blank" rel="noreferrer">
+              See it on GitHub
+            </a>
+          )}
         </>
-      )}
-      {c.files.length > 0 && (
-        <details className="bp-files">
-          <summary>
-            {c.files.length} file{c.files.length === 1 ? '' : 's'} · <ins>+{c.additions}</ins> <del>−{c.deletions}</del>
-          </summary>
-          <ul>
-            {c.files.slice(0, 40).map((f) => (
-              <li key={f.path} data-status={f.status}>
-                <em>{FILE_STATUS[f.status]}</em>
-                <span title={f.path}>{f.path}</span>
-                <small>
-                  <ins>+{f.additions}</ins> <del>−{f.deletions}</del>
-                </small>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {c.url && (
-        <a className="bp-open" href={c.url} target="_blank" rel="noreferrer">
-          See it on GitHub
-        </a>
-      )}
-    </section>
-  )
-}
-
-/** Just enough Markdown for a PR description: headings, bullets, paragraphs, bold and code. */
-function Body({ text }: { text: string }) {
-  const blocks = text.split(/\n{2,}/).slice(0, 14)
-  const inline = (s: string) =>
-    s
-      .split(/(\*\*[^*]+\*\*|`[^`]+`)/)
-      .map((x, i) => (x.startsWith('**') ? <b key={i}>{x.slice(2, -2)}</b> : x.startsWith('`') ? <code key={i}>{x.slice(1, -1)}</code> : x.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')))
-  return (
-    <div className="bp-body">
-      {blocks.map((b, i) => {
-        const lines = b.split('\n').filter((l) => l.trim())
-        if (/^#{1,6}\s/.test(lines[0] ?? '') && lines.length === 1) return <h5 key={i}>{inline(lines[0].replace(/^#+\s*/, ''))}</h5>
-        if (lines.every((l) => /^\s*([-*]|\d+\.)\s/.test(l)))
-          return (
-            <ul key={i}>
-              {lines.map((l, j) => (
-                <li key={j}>{inline(l.replace(/^\s*([-*]|\d+\.)\s+(\[[ x]\]\s*)?/, ''))}</li>
-              ))}
-            </ul>
-          )
-        return <p key={i}>{inline(lines.map((l) => l.replace(/^#+\s*/, '')).join(' '))}</p>
-      })}
-    </div>
-  )
-}
-
-function Notes() {
-  const selectedId = useApp((s) => s.selectedId)
-  const projects = useData((s) => s.projects)
-  const [target, setTarget] = useState<string>('')
-  // follow the building you pick, but let the dropdown override it
-  useEffect(() => {
-    if (selectedId) setTarget(selectedId)
-  }, [selectedId])
-  const claude = useClaude(target || null)
-  const [text, setText] = useState('')
-  const log = useRef<HTMLOListElement>(null)
-  useEffect(() => {
-    log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' })
-  }, [claude.messages])
-  const linkNote = { checking: '', live: 'Claude Code', missing: 'Not connected', offline: 'Demo' }[claude.link]
-  return (
-    <section className="bp-notes">
-      <header className="bp-notes-head">
-        <h2>Notes with Claude</h2>
-        {linkNote && <small data-link={claude.link}>{linkNote}</small>}
-      </header>
-      <label className="bp-notes-target">
-        <span>About</span>
-        <select value={target} onChange={(e) => setTarget(e.target.value)} disabled={claude.speaking}>
-          <option value="">All projects</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <ol ref={log} aria-live="polite">
-        {claude.messages.map((m) => (
-          <li key={m.id} data-role={m.role} data-error={m.error || undefined}>
-            <span>{m.role === 'claude' ? 'C' : 'D'}</span>
-            <div>
-              <p>
-                {m.text}
-                {m.streaming && !m.doing && <i className="bp-caret" />}
-              </p>
-              {m.doing && (
-                <p className="bp-doing">
-                  <i className="bp-caret" /> {m.doing}
-                </p>
-              )}
-              {m.asks && (
-                <div className="bp-ask">
-                  <ul>
-                    {m.asks.map((a) => (
-                      <li key={a.rule}>{a.what}</li>
-                    ))}
-                  </ul>
-                  {m.answered ? (
-                    <em>{m.answered === 'allowed' ? 'Allowed' : 'Not allowed'}</em>
-                  ) : (
-                    <div>
-                      <button onClick={() => claude.answer(m, true)} disabled={claude.speaking}>
-                        Allow
-                      </button>
-                      <button onClick={() => claude.answer(m, false)} disabled={claude.speaking}>
-                        No
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </li>
-        ))}
-      </ol>
-      <div className="bp-sugg">
-        {SUGGESTIONS.slice(0, 3).map((s) => (
-          <button key={s} onClick={() => claude.send(s)} disabled={claude.speaking}>
-            {s}
-          </button>
-        ))}
-      </div>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (claude.speaking) return claude.stop()
-          claude.send(text)
-          setText('')
-        }}
-      >
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder={target ? 'Ask Claude to look at or work on this project' : 'Ask Claude about your sites'} aria-label="Message Claude" />
-        <button disabled={!claude.speaking && !text.trim()}>{claude.speaking ? 'Stop' : 'Send'}</button>
-      </form>
+      ) : null}
     </section>
   )
 }

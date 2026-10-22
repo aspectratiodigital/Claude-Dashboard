@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import type { Change, Project, Thread } from './types'
-import { cleanBody, describeChange } from './describe'
 import { useData } from './store'
 
 // What a thread's latest push changed. Live: fetched from the local API the
@@ -45,7 +44,7 @@ export function useChange(project: Project, thread: Thread | undefined) {
 }
 
 function demoChange(p: Project, t: Thread): Change {
-  if (t.source === 'claude-local' && !t.branch) return { summary: ['This Claude Code session hasn’t pushed anything to GitHub yet.'], body: null, commits: [], files: [], additions: 0, deletions: 0, url: null }
+  if (t.source === 'claude-local' && !t.branch) return { summary: 'This Claude Code session hasn’t pushed anything to GitHub yet.', by: 'pr', body: null, commits: [], files: [], additions: 0, deletions: 0, url: null }
   const page = p.pages[1]?.path.replace(/^\//, '') || 'about'
   const files: Change['files'] = [
     { path: `src/pages/${page}.astro`, status: 'modified', additions: 64, deletions: 21 },
@@ -61,8 +60,9 @@ function demoChange(p: Project, t: Thread): Change {
     { sha: '29d6c0e', message: 'Compress images and lazy-load below the fold', date: new Date(at - 95 * 60_000).toISOString(), url: t.prUrl ?? '' },
   ]
   return {
-    summary: describeChange(files, commits),
-    body: cleanBody(`## Summary\n\n${t.title}. The ${page} page gets clearer copy and a new banner, the hero is shorter on phones, and images now load lazily so the page is quicker.\n\n## What changed\n\n- Rewrote the ${page} page intro\n- New banner image\n- Smaller hero on mobile\n- Lazy-loaded images\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`),
+    summary: `The ${page} page has clearer wording and a new banner across the top. On phones the opening section is shorter, so visitors reach the content sooner, and images now load as you scroll, which makes the page quicker to open.`,
+    by: 'claude',
+    body: null,
     commits,
     files,
     additions: files.reduce((a, f) => a + f.additions, 0),

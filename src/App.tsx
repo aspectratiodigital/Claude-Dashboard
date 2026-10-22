@@ -15,6 +15,7 @@ export default function App() {
   const setPalette = useApp((s) => s.setPalette)
   const toggleFps = useApp((s) => s.toggleFps)
   const selectedId = useApp((s) => s.selectedId)
+  const theme = useApp((s) => s.theme)
   useTier()
 
   useEffect(() => {
@@ -42,7 +43,7 @@ export default function App() {
   }, [setPalette, toggleFps])
 
   return (
-    <div className="app" data-selected={!!selectedId}>
+    <div className="app" data-selected={!!selectedId} data-theme={theme}>
       <Blueprint />
 
       <Tray />

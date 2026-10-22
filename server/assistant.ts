@@ -16,6 +16,8 @@ import { DATA_DIR } from './util.ts'
 /** Read-only tools Claude can always use. Everything else needs an Allow. */
 const READ_ONLY = ['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'Bash(git status:*)', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git branch:*)', 'Bash(git show:*)']
 const RUN_LIMIT_MS = 15 * 60_000
+export const MODELS = ['fable', 'opus', 'sonnet', 'haiku'] as const
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface Ask {
@@ -140,6 +142,9 @@ export interface RunOptions {
   folder: string | null
   resume?: string
   allow?: string[]
+  /** a model alias; unset uses whatever Claude Code is set to */
+  model?: string
+  effort?: string
 }
 
 const running = new Set<ChildProcess>()
@@ -161,6 +166,8 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
 
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'default', '--settings', settings]
   if (o.resume && UUID.test(o.resume)) args.push('--resume', o.resume)
+  if (o.model && (MODELS as readonly string[]).includes(o.model)) args.push('--model', o.model)
+  if (o.effort && (EFFORTS as readonly string[]).includes(o.effort)) args.push('--effort', o.effort)
   const prompt = o.resume ? o.prompt : `${contextFor(o.projects, o.site, o.folder)}\n\nDylan asks: ${o.prompt}`
 
   const shim = /\.(cmd|bat)$/i.test(o.exe)
@@ -251,4 +258,39 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
 function friendly(err: string) {
   if (/log ?in|authenticat|\/login|not logged/i.test(err)) return 'Claude Code needs you to sign in once: open a terminal, run claude, and follow the sign-in steps. Then ask again.'
   return err.trim().split('\n').slice(-3).join(' ').slice(0, 400)
+}
+
+/**
+ * One short, tool-free answer from Claude Code, as plain text: used to describe
+ * a push in plain English. Resolves to null if Claude Code isn't there or fails.
+ */
+export function ask(exe: string, prompt: string, model = 'haiku'): Promise<string | null> {
+  const work = path.join(DATA_DIR, 'claude-workspace')
+  fs.mkdirSync(work, { recursive: true })
+  const args = ['-p', '--output-format', 'text', '--model', model, '--no-session-persistence', '--permission-mode', 'default']
+  return new Promise((resolve) => {
+    let child: ChildProcess
+    try {
+      child = /\.(cmd|bat)$/i.test(exe)
+        ? spawn([exe, ...args].map(quoteForCmd).join(' '), { cwd: work, shell: true, windowsHide: true })
+        : spawn(exe, args, { cwd: work, windowsHide: true })
+    } catch {
+      return resolve(null)
+    }
+    running.add(child)
+    let out = ''
+    const done = (v: string | null) => {
+      clearTimeout(limit)
+      running.delete(child)
+      resolve(v)
+    }
+    const limit = setTimeout(() => {
+      child.kill()
+      done(null)
+    }, 90_000)
+    child.stdout?.on('data', (b: Buffer) => (out += b.toString('utf8')))
+    child.on('error', () => done(null))
+    child.on('close', (code) => done(code === 0 && out.trim() ? out.trim() : null))
+    child.stdin?.end(prompt)
+  })
 }

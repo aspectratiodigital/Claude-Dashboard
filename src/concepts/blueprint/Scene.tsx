@@ -9,12 +9,9 @@ import { useApp } from '../../store'
 import { Anchor } from '../../shared/Labels'
 import { since, useImpulses, type Impulses } from '../../shared/pulse'
 import { useBp } from './state'
+import { usePalette, type Palette } from './palette'
 
-export const LINE = '#dce9ff'
-export const MARK = '#ffd23f'
-export const ALERT = '#ff6b6b'
-const GO = '#7dffb0'
-const LEVEL: Record<string, string> = { info: LINE, progress: MARK, success: GO, warning: MARK, critical: ALERT }
+const levelColor = (p: Palette, level: string) => ({ info: p.line, progress: p.mark, success: p.go, warning: p.mark, critical: p.alert })[level] ?? p.line
 
 const SPACE_X = 5.6
 const SPACE_Z = 6
@@ -71,8 +68,11 @@ export const heightOf = (floors: number, ex = 0) => BASE + floors * (FLOOR_H + e
 // --- Ground: drafting grid --------------------------------------------------------------------
 
 function Ground({ ping }: { ping: MutableRefObject<{ at: number; color: THREE.Color }> }) {
-  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uPing: { value: 99 }, uPingColor: { value: new THREE.Color(LINE) } }), [])
+  const pal = usePalette()
+  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uPing: { value: 99 }, uPingColor: { value: new THREE.Color() }, uGrid: { value: new THREE.Vector3() }, uAlpha: { value: 1 } }), [])
   useFrame((s) => {
+    uniforms.uGrid.value.set(...pal.grid)
+    uniforms.uAlpha.value = pal.gridAlpha
     uniforms.uTime.value = s.clock.elapsedTime
     uniforms.uPing.value = s.clock.elapsedTime - ping.current.at
     uniforms.uPingColor.value.copy(ping.current.color)
@@ -85,7 +85,7 @@ function Ground({ ping }: { ping: MutableRefObject<{ at: number; color: THREE.Co
         transparent
         depthWrite={false}
         vertexShader="varying vec2 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xz; gl_Position = projectionMatrix*viewMatrix*w; }"
-        fragmentShader={`uniform float uTime; uniform float uPing; uniform vec3 uPingColor; varying vec2 vW;
+        fragmentShader={`uniform float uTime; uniform float uPing; uniform vec3 uPingColor; uniform vec3 uGrid; uniform float uAlpha; varying vec2 vW;
           float grid(vec2 p, float s, float w) { vec2 g = abs(fract(p / s - .5) - .5) / fwidth(p / s); return 1. - min(min(g.x, g.y) / w, 1.); }
           void main(){
             float minor = grid(vW, 1., 1.) * .1;
@@ -94,8 +94,8 @@ function Ground({ ping }: { ping: MutableRefObject<{ at: number; color: THREE.Co
             float reveal = smoothstep(0., 1., uTime * .8 - length(vW) * .04);
             // a sweep across the whole sheet when something big happens
             float sweep = exp(-pow(length(vW) - uPing * 16., 2.) * .08) * smoothstep(3., 0., uPing);
-            vec3 col = mix(vec3(.86, .91, 1.), uPingColor, sweep);
-            gl_FragColor = vec4(col, ((minor + major) * fade + sweep * (minor * 3. + .05)) * reveal);
+            vec3 col = mix(uGrid, uPingColor, sweep);
+            gl_FragColor = vec4(col, ((minor + major) * fade + sweep * (minor * 3. + .05)) * reveal * uAlpha);
           }`}
       />
     </mesh>
@@ -104,6 +104,7 @@ function Ground({ ping }: { ping: MutableRefObject<{ at: number; color: THREE.Co
 
 /** Roads between the lots with little request "cars" running on them. */
 function Roads({ lots }: { lots: Lot[] }) {
+  const pal = usePalette()
   const { xs, zs, spanX, spanZ } = useMemo(() => {
     const cx = [...new Set(lots.map((l) => l.x))].sort((a, b) => a - b)
     const cz = [...new Set(lots.map((l) => l.z))].sort((a, b) => a - b)
@@ -117,11 +118,11 @@ function Roads({ lots }: { lots: Lot[] }) {
     for (const x of xs) pts.push(x, 0, spanZ[0] - 1, x, 0, spanZ[1] + 1)
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
-    const l = new THREE.LineSegments(g, new THREE.LineDashedMaterial({ color: LINE, dashSize: 0.3, gapSize: 0.2, transparent: true, opacity: 0.35 }))
+    const l = new THREE.LineSegments(g, new THREE.LineDashedMaterial({ color: pal.line, dashSize: 0.3, gapSize: 0.2, transparent: true, opacity: 0.35 }))
     l.computeLineDistances()
     l.raycast = noRay
     return l
-  }, [xs, zs, spanX, spanZ])
+  }, [xs, zs, spanX, spanZ, pal])
   const cars = useRef<THREE.InstancedMesh>(null!)
   const n = 60
   const seeds = useMemo(
@@ -157,7 +158,7 @@ function Roads({ lots }: { lots: Lot[] }) {
       <primitive object={lines} />
       <instancedMesh ref={cars} args={[undefined, undefined, n]} raycast={noRay}>
         <boxGeometry />
-        <meshBasicMaterial color={MARK} toneMapped={false} />
+        <meshBasicMaterial color={pal.mark} toneMapped={false} />
       </instancedMesh>
     </group>
   )
@@ -195,6 +196,7 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
   const part = useBp((s) => (selected ? s.part : null))
   const hoverPart = useBp((s) => (selected ? s.hoverPart : null))
   const sig = signals(project)
+  const pal = usePalette()
   // newest push first; hut 0 sits at the back and rises highest when opened, so it reads as the top of the stack
   const threads = threadsByPush(project).slice(0, MAX_HUTS)
   const slot = (k: number) => threads.length - 1 - k
@@ -219,21 +221,21 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
 
   const mats = useMemo(
     () => ({
-      fill: new THREE.MeshBasicMaterial({ color: '#2a6bb8', transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }),
-      edge: new THREE.LineBasicMaterial({ color: LINE, transparent: true, opacity: 0.9 }),
-      hutFill: new THREE.MeshBasicMaterial({ color: '#1d5ea6', transparent: true, opacity: 0.7, depthWrite: false }),
-      hutEdge: new THREE.LineBasicMaterial({ color: LINE, transparent: true, opacity: 0.85 }),
-      hlFill: new THREE.MeshBasicMaterial({ color: MARK, transparent: true, opacity: 0.22, depthWrite: false }),
-      hlEdge: new THREE.LineBasicMaterial({ color: MARK }),
-      lot: new THREE.LineBasicMaterial({ color: LINE, transparent: true, opacity: 0.3 }),
-      ping: new THREE.MeshBasicMaterial({ color: LINE, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }),
-      light: new THREE.MeshBasicMaterial({ color: MARK, transparent: true, toneMapped: false }),
+      fill: new THREE.MeshBasicMaterial({ color: pal.fill, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }),
+      edge: new THREE.LineBasicMaterial({ color: pal.line, transparent: true, opacity: 0.9 }),
+      hutFill: new THREE.MeshBasicMaterial({ color: pal.hut, transparent: true, opacity: 0.7, depthWrite: false }),
+      hutEdge: new THREE.LineBasicMaterial({ color: pal.line, transparent: true, opacity: 0.85 }),
+      hlFill: new THREE.MeshBasicMaterial({ color: pal.mark, transparent: true, opacity: 0.22, depthWrite: false }),
+      hlEdge: new THREE.LineBasicMaterial({ color: pal.mark }),
+      lot: new THREE.LineBasicMaterial({ color: pal.line, transparent: true, opacity: 0.3 }),
+      ping: new THREE.MeshBasicMaterial({ color: pal.line, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }),
+      light: new THREE.MeshBasicMaterial({ color: pal.mark, transparent: true, toneMapped: false }),
     }),
-    [],
+    [pal],
   )
   useEffect(() => () => Object.values(mats).forEach((m) => m.dispose()), [mats])
 
-  const colors = useMemo(() => ({ line: new THREE.Color(LINE), mark: new THREE.Color(MARK), alert: new THREE.Color(ALERT), fill: new THREE.Color('#2a6bb8'), fillAlert: new THREE.Color('#7a2f52') }), [])
+  const colors = useMemo(() => ({ line: new THREE.Color(pal.line), mark: new THREE.Color(pal.mark), alert: new THREE.Color(pal.alert), fill: new THREE.Color(pal.fill), fillAlert: new THREE.Color(pal.fillAlert) }), [pal])
   const W = lot.w
   const D = lot.d
 
@@ -327,7 +329,7 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
       const r = 1.2 + k * Math.max(W, D) * 1.6
       pingRef.current.scale.set(r, 1, r)
       mats.ping.opacity = (1 - k) * (1 - k)
-      mats.ping.color.set(LEVEL[impulses.get(id)!.level])
+      mats.ping.color.set(levelColor(pal, impulses.get(id)!.level))
     }
   })
 
@@ -456,22 +458,22 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
         </group>
         <group ref={scan} visible={false}>
           <lineSegments geometry={boxEdges} scale={[W + 0.25, 0.001, D + 0.25]} raycast={noRay}>
-            <lineBasicMaterial color={MARK} toneMapped={false} />
+            <lineBasicMaterial color={pal.mark} toneMapped={false} />
           </lineSegments>
         </group>
         <mesh ref={lift} position={[-W / 2 - 0.12, 0, D / 2 + 0.12]} visible={false} raycast={noRay}>
           <boxGeometry args={[0.16, 0.22, 0.16]} />
-          <meshBasicMaterial color={GO} toneMapped={false} />
+          <meshBasicMaterial color={pal.go} toneMapped={false} />
         </mesh>
         <group ref={drone} visible={false}>
           <mesh position={[Math.max(W, D) * 0.75, 0, 0]} raycast={noRay}>
             <octahedronGeometry args={[0.12, 0]} />
-            <meshBasicMaterial color={LINE} wireframe toneMapped={false} />
+            <meshBasicMaterial color={pal.line} wireframe toneMapped={false} />
           </mesh>
         </group>
         <mesh ref={beacon} visible={false} raycast={noRay}>
           <octahedronGeometry args={[0.2, 0]} />
-          <meshBasicMaterial color={ALERT} toneMapped={false} />
+          <meshBasicMaterial color={pal.alert} toneMapped={false} />
         </mesh>
         <Flags count={othersDissected ? 0 : Math.min(5, sig.issues)} w={W} d={D} />
 
@@ -483,6 +485,7 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
 
 /** Little red survey flags at the front of the lot: one per open issue. */
 function Flags({ count, w, d }: { count: number; w: number; d: number }) {
+  const pal = usePalette()
   const ref = useRef<THREE.Group>(null!)
   useFrame((s) => ref.current.children.forEach((f, i) => (f.children[1].rotation.y = Math.sin(s.clock.elapsedTime * 2 + i) * 0.4)))
   return (
@@ -491,11 +494,11 @@ function Flags({ count, w, d }: { count: number; w: number; d: number }) {
         <group key={i} position={[i * 0.3, 0, 0]}>
           <mesh position={[0, 0.25, 0]} raycast={noRay}>
             <boxGeometry args={[0.02, 0.5, 0.02]} />
-            <meshBasicMaterial color={LINE} />
+            <meshBasicMaterial color={pal.line} />
           </mesh>
           <mesh position={[0, 0.44, 0]} raycast={noRay}>
             <planeGeometry args={[0.2, 0.12]} />
-            <meshBasicMaterial color={ALERT} side={THREE.DoubleSide} toneMapped={false} />
+            <meshBasicMaterial color={pal.alert} side={THREE.DoubleSide} toneMapped={false} />
           </mesh>
         </group>
       ))}
@@ -504,6 +507,7 @@ function Flags({ count, w, d }: { count: number; w: number; d: number }) {
 }
 
 function Crane({ height, jib }: { height: number; jib: MutableRefObject<THREE.Group> }) {
+  const pal = usePalette()
   const mast = useMemo(() => {
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, height, 0], 3))
@@ -518,11 +522,11 @@ function Crane({ height, jib }: { height: number; jib: MutableRefObject<THREE.Gr
   return (
     <group>
       <lineSegments geometry={mast} raycast={noRay}>
-        <lineBasicMaterial color={MARK} />
+        <lineBasicMaterial color={pal.mark} />
       </lineSegments>
       <group ref={jib} position={[0, height, 0]}>
         <lineSegments geometry={arm} raycast={noRay}>
-          <lineBasicMaterial color={MARK} />
+          <lineBasicMaterial color={pal.mark} />
         </lineSegments>
       </group>
     </group>
@@ -623,18 +627,21 @@ function Rig({ turn, lots }: { turn: MutableRefObject<number>; lots: Lot[] }) {
 
 export function BlueprintScene({ turn }: { turn: MutableRefObject<number> }) {
   const lots = useLots()
-  const ping = useRef({ at: -99, color: new THREE.Color(LINE) })
+  const pal = usePalette()
+  const palRef = useRef(pal)
+  palRef.current = pal
+  const ping = useRef({ at: -99, color: new THREE.Color(pal.line) })
   const impulses = useImpulses(
     useMemo(
       () => (n: { level: string }, at: number) => {
-        if (n.level === 'critical' || n.level === 'success') ping.current = { at, color: new THREE.Color(LEVEL[n.level]) }
+        if (n.level === 'critical' || n.level === 'success') ping.current = { at, color: new THREE.Color(levelColor(palRef.current, n.level)) }
       },
       [],
     ),
   )
   return (
     <>
-      <color attach="background" args={['#164a86']} />
+      <color attach="background" args={[pal.paper]} />
       <OrthographicCamera makeDefault position={[28, 32, 28]} zoom={34} near={-100} far={200} />
       <Rig turn={turn} lots={lots} />
       <Ground ping={ping} />

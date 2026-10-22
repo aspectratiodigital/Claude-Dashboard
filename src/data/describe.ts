@@ -1,92 +1,8 @@
 import type { Change } from './types'
 
-// Turns a push's raw GitHub data (commits and changed files) into a few
-// plain-English sentences, so you can see what a thread did to a site without
-// reading a diff. Shared by the local API and the demo data.
-
-type File = Change['files'][number]
-
-const AREAS: [string, RegExp][] = [
-  ['test', /(^|\/)(__tests__|tests?|e2e|cypress|playwright)\/|\.(test|spec)\.[a-z]+$/i],
-  ['setup', /(^|\/)(\.github|\.vscode|\.husky)\/|(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|tsconfig[^/]*\.json|\.gitignore|\.gitattributes|\.env[^/]*|vercel\.json|netlify\.toml|wrangler\.toml|dockerfile|[^/]*\.config\.[a-z]+|[^/]*rc(\.[a-z]+)?)$/i],
-  ['image', /\.(png|jpe?g|gif|webp|avif|svg|ico|mp4|webm|mov|woff2?|ttf|otf)$/i],
-  ['style', /\.(css|scss|sass|less|styl)$|(^|\/)(styles?|tailwind)[^/]*\//i],
-  ['component', /(^|\/)(components?|ui|widgets|sections|layouts?|partials)\//i],
-  ['page', /(^|\/)(pages|routes|views|app)\/|(^|\/)page\.[jt]sx?$|\.(html?|astro|liquid|hbs|php)$/i],
-  ['content', /(^|\/)(content|posts|blog|data|locales|i18n)\/|\.(mdx?|ya?ml|csv)$/i],
-  ['server', /(^|\/)(api|server|functions|lambda|backend|netlify\/functions)\//i],
-  ['docs', /(^|\/)(readme|changelog|license|contributing)[^/]*$|(^|\/)docs\//i],
-]
-
-const areaOf = (path: string) => AREAS.find(([, re]) => re.test(path))?.[0] ?? 'code'
-
-const NOUN: Record<string, [string, string]> = {
-  page: ['page', 'pages'],
-  component: ['component', 'components'],
-  style: ['stylesheet', 'stylesheets'],
-  image: ['image or media file', 'images and media files'],
-  content: ['content file', 'content files'],
-  server: ['server or API file', 'server and API files'],
-  setup: ['setup or build file', 'setup and build files'],
-  test: ['test', 'tests'],
-  docs: ['docs file', 'docs files'],
-  code: ['code file', 'other code files'],
-}
-
-/** "about", "services/web-design", "home" from a page file path. */
-function pageName(path: string) {
-  const parts = path
-    .replace(/\.[a-z0-9]+$/i, '')
-    .split('/')
-    .filter((x) => x && !/^(src|app|pages|routes|views|public|\(.*\))$/i.test(x))
-  while (parts.length > 1 && /^(index|page|\+page|layout)$/i.test(parts.at(-1)!)) parts.pop()
-  const name = parts.join('/') || 'home'
-  return /^(index|page|\+page)$/i.test(name) ? 'home' : name
-}
-
-const fileName = (path: string) => path.split('/').pop() ?? path
-
-function list(items: string[], max = 4) {
-  const shown = items.slice(0, max)
-  const more = items.length - shown.length
-  if (more > 0) shown.push(`${more} more`)
-  if (shown.length < 2) return shown.join('')
-  return `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
-}
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
-
-export function describeChange(files: File[], commits: Change['commits']): string[] {
-  const out: string[] = []
-  if (!files.length) {
-    out.push(commits.length ? `${plural(commits.length, 'commit')}, but GitHub didn't list any changed files.` : 'Nothing has been pushed for this yet.')
-    return out
-  }
-  const add = files.reduce((a, f) => a + f.additions, 0)
-  const del = files.reduce((a, f) => a + f.deletions, 0)
-  out.push(`${plural(commits.length || 1, 'commit')} touching ${plural(files.length, 'file')}: ${add.toLocaleString()} line${add === 1 ? '' : 's'} added and ${del.toLocaleString()} removed.`)
-
-  // what kind of things changed, biggest first
-  const groups = new Map<string, File[]>()
-  for (const f of files) {
-    const a = areaOf(f.path)
-    groups.set(a, [...(groups.get(a) ?? []), f])
-  }
-  const ranked = [...groups.entries()].sort((a, b) => b[1].reduce((n, f) => n + f.additions + f.deletions + 1, 0) - a[1].reduce((n, f) => n + f.additions + f.deletions + 1, 0))
-  const parts = ranked.map(([area, fs]) => {
-    const [one, many] = NOUN[area]
-    if (area === 'page') return `${fs.length === 1 ? 'one' : fs.length} ${fs.length === 1 ? one : many} (${list([...new Set(fs.map((f) => pageName(f.path)))], 3)})`
-    if (area === 'component') return `${fs.length === 1 ? 'one' : fs.length} ${fs.length === 1 ? one : many} (${list(fs.map((f) => fileName(f.path).replace(/\.[a-z]+$/i, '')), 3)})`
-    return `${fs.length === 1 ? 'one' : fs.length} ${fs.length === 1 ? one : many}`
-  })
-  out.push(`Mostly ${list(parts, 5)}.`)
-
-  const added = files.filter((f) => f.status === 'added')
-  const removed = files.filter((f) => f.status === 'removed')
-  if (added.length) out.push(`New: ${list(added.map((f) => fileName(f.path)), 5)}.`)
-  if (removed.length) out.push(`Deleted: ${list(removed.map((f) => fileName(f.path)), 5)}.`)
-  return out
-}
+// The words behind "What changed" on a thread. Claude Code on this computer
+// writes a short plain-English description of a push (see server/assistant.ts);
+// when it isn't available, the PR's own summary or the commit messages stand in.
 
 /** A PR body without Claude's attribution and session lines. */
 export function cleanBody(body: string | null | undefined): string | null {
@@ -99,4 +15,45 @@ export function cleanBody(body: string | null | undefined): string | null {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
   return text || null
+}
+
+const plain = (s: string) =>
+  s
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_`]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/** The first paragraph of prose in a PR body, else the commit messages. */
+export function fallbackDescription(body: string | null, commits: Change['commits']): string {
+  const prose = (body ?? '')
+    .split(/\n{2,}/)
+    .map((b) => b.trim())
+    .find((b) => b && !/^#/.test(b) && !/^\s*([-*]|\d+\.)\s/.test(b) && !/^\|/.test(b))
+  if (prose) return clip(plain(prose))
+  const msgs = [...new Set(commits.map((c) => c.message.trim()).filter(Boolean))]
+  if (!msgs.length) return 'Nothing has been pushed for this yet.'
+  return clip(`${msgs.slice(0, 4).join('. ').replace(/\.\./g, '.')}${msgs.length > 4 ? ', and a few smaller changes' : ''}.`)
+}
+
+function clip(s: string, max = 420) {
+  if (s.length <= max) return s
+  const cut = s.slice(0, max)
+  return `${cut.slice(0, Math.max(cut.lastIndexOf('. ') + 1, cut.lastIndexOf(' ')))}…`
+}
+
+/** What Claude is asked, to describe one push for someone who doesn't read code. */
+export function changePrompt(site: string, title: string, c: Pick<Change, 'body' | 'commits' | 'files'>): string {
+  return [
+    `Describe what this change to the website "${site}" does, for the site's owner, who isn't a developer.`,
+    'Write 2 or 3 short plain-English sentences about what a visitor would see or notice, or how the site is built or runs differently.',
+    "Don't mention file names, commits, line counts or code. No headings, lists or preamble: reply with only the description. Don't use any tools.",
+    '',
+    `Title: ${title}`,
+    c.body ? `Description:\n${c.body.slice(0, 3000)}` : '',
+    c.commits.length ? `Commits:\n${c.commits.slice(0, 30).map((x) => `- ${x.message}`).join('\n')}` : '',
+    c.files.length ? `Files changed:\n${c.files.slice(0, 60).map((f) => `- ${f.status} ${f.path} (+${f.additions} -${f.deletions})`).join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
