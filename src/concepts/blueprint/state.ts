@@ -8,18 +8,23 @@ import { create } from 'zustand'
 
 interface BpState {
   dissect: boolean
+  /** the callout shows Claude for the selected building instead of its details */
+  claude: boolean
   part: string | null
   hoverPart: string | null
   setDissect: (on: boolean) => void
+  setClaude: (on: boolean) => void
   setPart: (part: string | null) => void
   setHoverPart: (part: string | null) => void
 }
 
 export const useBp = create<BpState>((set) => ({
   dissect: false,
+  claude: false,
   part: null,
   hoverPart: null,
-  setDissect: (dissect) => set({ dissect, part: dissect ? 'roof' : null, hoverPart: null }),
+  setDissect: (dissect) => set({ dissect, claude: false, part: dissect ? 'roof' : null, hoverPart: null }),
+  setClaude: (claude) => set({ claude }),
   setPart: (part) => set({ part }),
   setHoverPart: (hoverPart) => set({ hoverPart }),
 }))

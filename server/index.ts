@@ -6,7 +6,8 @@ import { githubAuth, loadConfig, loadSettings, psiKey, saveSettings, type Config
 import { GitHub, listRepos, loadChange, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
 import { scanLocalSessions, type LocalSession } from './claude.ts'
-import { findClaude, runClaude, stopAll } from './assistant.ts'
+import { ask, findClaude, runClaude, stopAll } from './assistant.ts'
+import { changePrompt } from '../src/data/describe.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
@@ -17,6 +18,7 @@ import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyNam
 
 const STATE_FILE = path.join(DATA_DIR, 'state.json')
 const NOTES_FILE = path.join(DATA_DIR, 'notes.json')
+const CHANGES_FILE = path.join(DATA_DIR, 'changes.json')
 const MIN = 60_000
 
 interface Persisted {
@@ -39,7 +41,28 @@ class Engine {
   health = new Map<string, Health>()
   sitePages = new Map<string, { at: number; pages: Page[] }>()
   inspected = new Map<string, Page>()
-  changes = new Map<string, Change>()
+  /** what each thread's push changed, keyed on project, thread and push time; kept on disk so Claude describes each push once */
+  changes = new Map<string, Change>(Object.entries(readJson<Record<string, Change>>(CHANGES_FILE, {})))
+  changing = new Map<string, Promise<Change>>()
+
+  async change(p: Project, t: Thread, repo: RepoInfo): Promise<Change> {
+    const key = `${p.id}|${t.id}|${t.pushed ?? t.updated}`
+    const hit = this.changes.get(key)
+    if (hit) return hit
+    const busy = this.changing.get(key)
+    if (busy) return busy
+    const job = (async () => {
+      const c = await loadChange(this.gh!, repo, t, this.data.get(repo.full.toLowerCase()))
+      const exe = c.commits.length || c.files.length ? await findClaude(loadSettings().claudePath) : null
+      const words = exe ? await ask(exe, changePrompt(p.name, t.title, c)) : null
+      const done: Change = words ? { ...c, summary: words.replace(/\s*\n\s*/g, ' '), by: 'claude' } : c
+      this.changes.set(key, done)
+      writeJson(CHANGES_FILE, Object.fromEntries([...this.changes].slice(-200)))
+      return done
+    })().finally(() => this.changing.delete(key))
+    this.changing.set(key, job)
+    return job
+  }
   psiAt = new Map<string, number>()
   sessions: LocalSession[] = []
   projects: Project[] = []
@@ -579,6 +602,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
           folder: site ? engine.folderFor(site) : null,
           resume: typeof body.resume === 'string' ? body.resume : undefined,
           allow: Array.isArray(body.allow) ? (body.allow as unknown[]).filter((x): x is string => typeof x === 'string') : undefined,
+          model: typeof body.model === 'string' ? body.model : undefined,
+          effort: typeof body.effort === 'string' ? body.effort : undefined,
         },
         res,
       )
@@ -649,14 +674,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       const repo = engine.repos.find((r) => r.full === p?.repo)
       if (!p || !t || !repo) return json(res, 404, { error: 'thread not found' })
       if (!engine.gh) return json(res, 503, { error: 'GitHub is not connected' })
-      // keyed on the last push, so a new push fetches again
-      const key = `${p.id}|${t.id}|${t.pushed ?? t.updated}`
-      const hit = engine.changes.get(key)
-      if (hit) return json(res, 200, hit)
       try {
-        const change = await loadChange(engine.gh, repo, t, engine.data.get(repo.full.toLowerCase()))
-        engine.changes.set(key, change)
-        return json(res, 200, change)
+        return json(res, 200, await engine.change(p, t, repo))
       } catch (e) {
         return json(res, 502, { error: (e as Error).message })
       }

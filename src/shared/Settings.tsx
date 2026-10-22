@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useData } from '../data/store'
-import { useApp, type Quality } from '../store'
+import { useApp, type Quality, type Theme } from '../store'
 import { detectTier, resolveTier, TIERS } from './quality'
 import { Icon } from './icons'
 
@@ -19,6 +19,12 @@ interface Remote {
 
 const PERMS = ['contents', 'metadata', 'pull_requests', 'issues', 'actions', 'deployments', 'statuses'].map((p) => `${p}=read`).join('&')
 
+const THEMES: [Theme, string, string][] = [
+  ['blueprint', 'Blueprint', 'Drafting blue with yellow marks'],
+  ['light', 'Light', 'Off-white with near-black lines'],
+  ['dark', 'Dark', 'Off-black with soft white lines'],
+]
+
 export function tokenLink(owner: string) {
   const q = `name=Jarvis+Dashboard&description=${encodeURIComponent('Read-only access for the Aspect Ratio Digital dashboard')}&target_name=${encodeURIComponent(owner)}&expires_in=366&${PERMS}`
   return `https://github.com/settings/personal-access-tokens/new?${q}`
@@ -27,6 +33,8 @@ export function tokenLink(owner: string) {
 export function Settings() {
   const open = useApp((s) => s.settingsOpen)
   const setOpen = useApp((s) => s.setSettings)
+  const theme = useApp((s) => s.theme)
+  const setTheme = useApp((s) => s.setTheme)
   const quality = useApp((s) => s.quality)
   const setQuality = useApp((s) => s.setQuality)
   const showFps = useApp((s) => s.showFps)
@@ -190,6 +198,21 @@ export function Settings() {
               </div>
             </section>
           )}
+
+          <section>
+            <h3>
+              <Icon.layers size={16} /> Appearance
+            </h3>
+            <div className="settings-quality settings-theme" role="radiogroup" aria-label="Theme">
+              {THEMES.map(([t, label, note]) => (
+                <button key={t} role="radio" aria-checked={theme === t} onClick={() => setTheme(t)} data-swatch={t}>
+                  <i aria-hidden />
+                  <b>{label}</b>
+                  <small>{note}</small>
+                </button>
+              ))}
+            </div>
+          </section>
 
           <section>
             <h3>

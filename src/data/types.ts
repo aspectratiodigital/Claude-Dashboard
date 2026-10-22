@@ -93,8 +93,10 @@ export interface Thread {
 
 /** What one thread's push changed, fetched on demand when you open it. */
 export interface Change {
-  /** a few plain-English sentences */
-  summary: string[]
+  /** a short plain-English description of what the push does to the site */
+  summary: string
+  /** who wrote the summary: Claude Code on this computer, or taken from the PR / commits */
+  by: 'claude' | 'pr'
   /** the PR description, with Claude's attribution lines taken out */
   body: string | null
   commits: { sha: string; message: string; date: string; url: string }[]

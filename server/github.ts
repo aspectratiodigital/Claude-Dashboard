@@ -1,5 +1,5 @@
 import type { Change, Commit, Deployment, DeployState, Issue, Page, Pull, Run, RunState, Thread } from '../src/data/types.ts'
-import { cleanBody, describeChange } from '../src/data/describe.ts'
+import { cleanBody, fallbackDescription } from '../src/data/describe.ts'
 import { log } from './util.ts'
 
 // Minimal GitHub REST client. Every GET is conditional (ETag), and GitHub does
@@ -484,9 +484,11 @@ const toCommits = (list: Json[] | undefined): Change['commits'] =>
 function finish(files: Change['files'], commits: Change['commits'], body: string | null, url: string | null): Change {
   // newest commit first, like the rest of the dashboard
   const sorted = [...commits].sort((a, b) => b.date.localeCompare(a.date))
+  const clean = cleanBody(body)
   return {
-    summary: describeChange(files, sorted),
-    body: cleanBody(body),
+    summary: fallbackDescription(clean, sorted),
+    by: 'pr',
+    body: clean,
     commits: sorted,
     files: [...files].sort((a, b) => b.additions + b.deletions - (a.additions + a.deletions)),
     additions: files.reduce((a, f) => a + f.additions, 0),

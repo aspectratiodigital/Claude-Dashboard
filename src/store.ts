@@ -3,6 +3,7 @@ import { create } from 'zustand'
 export type Device = 'desktop' | 'mobile'
 export type Source = 'live' | 'preview' | 'local'
 export type Quality = 'auto' | 'high' | 'balanced' | 'battery'
+export type Theme = 'blueprint' | 'light' | 'dark'
 
 export interface StageState {
   projectId: string
@@ -19,6 +20,7 @@ interface State {
   settingsOpen: boolean
   showFps: boolean
   quality: Quality
+  theme: Theme
   /** fullscreen preview of a site */
   stage: StageState | null
   select: (id: string | null) => void
@@ -28,6 +30,7 @@ interface State {
   setSettings: (open: boolean) => void
   toggleFps: () => void
   setQuality: (q: Quality) => void
+  setTheme: (t: Theme) => void
   openStage: (s: StageState) => void
   closeStage: () => void
 }
@@ -57,6 +60,7 @@ export const useApp = create<State>((set) => ({
   settingsOpen: false,
   showFps: false,
   quality: load<Quality>('ard.quality', (v) => ['auto', 'high', 'balanced', 'battery'].includes(v), 'auto'),
+  theme: load<Theme>('ard.theme', (v) => ['blueprint', 'light', 'dark'].includes(v), 'blueprint'),
   stage: null,
   select: (selectedId) => set({ selectedId }),
   hover: (hoveredId) => set({ hoveredId }),
@@ -67,6 +71,10 @@ export const useApp = create<State>((set) => ({
   setQuality: (quality) => {
     save('ard.quality', quality)
     set({ quality })
+  },
+  setTheme: (theme) => {
+    save('ard.theme', theme)
+    set({ theme })
   },
   openStage: (stage) => set({ stage }),
   closeStage: () => set({ stage: null }),
