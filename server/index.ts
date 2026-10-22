@@ -19,6 +19,10 @@ import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyNam
 const STATE_FILE = path.join(DATA_DIR, 'state.json')
 const NOTES_FILE = path.join(DATA_DIR, 'notes.json')
 const CHANGES_FILE = path.join(DATA_DIR, 'changes.json')
+const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json')
+/** Claude conversations from the dashboard, kept between launches (newest 300) */
+let conversations: Record<string, { id: string; updated: number }> | null = null
+const loadConversations = () => (conversations ??= readJson<Record<string, { id: string; updated: number }>>(CONVERSATIONS_FILE, {}))
 const MIN = 60_000
 
 interface Persisted {
@@ -526,12 +530,12 @@ function json(res: ServerResponse, code: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
-function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+function readBody(req: IncomingMessage, limit = 100_000): Promise<Record<string, unknown>> {
   return new Promise((resolve) => {
     let raw = ''
     req.on('data', (c) => {
       raw += c
-      if (raw.length > 100_000) req.destroy()
+      if (raw.length > limit) req.destroy()
     })
     req.on('end', () => {
       try {
@@ -636,6 +640,24 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       for (const n of engine.notes) if (!ids || ids.has(n.id)) n.read = true
       writeJson(NOTES_FILE, engine.notes)
       engine.broadcast()
+      return json(res, 200, { ok: true })
+    }
+
+    case 'GET /api/conversations':
+      return json(res, 200, Object.values(loadConversations()))
+
+    case 'POST /api/conversation': {
+      const body = await readBody(req, 4_000_000)
+      const c = body.conversation as { id?: unknown; updated?: unknown } | undefined
+      if (!c || typeof c.id !== 'string' || !/^[\w-]{1,64}$/.test(c.id)) return json(res, 400, { error: 'bad conversation' })
+      const all = loadConversations()
+      if (body.delete === true) delete all[c.id]
+      else all[c.id] = { ...(c as { id: string; updated: number }), updated: Number(c.updated) || Date.now() }
+      const keep = Object.values(all)
+        .sort((a, b) => b.updated - a.updated)
+        .slice(0, 300)
+      conversations = Object.fromEntries(keep.map((x) => [x.id, x]))
+      writeJson(CONVERSATIONS_FILE, conversations, 300)
       return json(res, 200, { ok: true })
     }
 

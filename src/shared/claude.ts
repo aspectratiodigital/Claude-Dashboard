@@ -8,9 +8,11 @@ import { STATUS_LABEL } from '../data/derive'
 // commands come back as "asks" with Allow buttons. Without Claude Code (or in
 // demo mode) it falls back to short canned answers from the dashboard data.
 //
-// Conversations ("threads") live in one store for as long as the app is open,
-// so the notes panel, a building's Claude panel and the fullscreen workspace
-// all see the same history, and several threads can run at once.
+// Conversations ("threads") live in one store, so the notes panel, a
+// building's Claude panel and the fullscreen workspace all see the same
+// history, and several threads can run at once. The local API keeps them on
+// disk, and each one resumes its Claude Code session, so they carry on after
+// the app is closed and reopened.
 
 export interface Ask {
   rule: string
@@ -82,6 +84,8 @@ interface ClaudeState {
   /** start a new conversation for a project and make it current */
   start: (projectId: string | null) => string
   pick: (convId: string) => void
+  /** forget a conversation (here and on disk) */
+  remove: (convId: string) => void
   send: (convId: string, text: string) => void
   answer: (convId: string, msgId: number, ok: boolean) => void
   stop: (convId: string) => void
@@ -163,7 +167,10 @@ function checkLink() {
 }
 // the link depends on the local API, which the data store finds first
 useData.subscribe((s, prev) => {
-  if (s.api && !prev.api) checkLink()
+  if (s.api && !prev.api) {
+    checkLink()
+    restore()
+  }
   if (s.mode === 'demo' && !s.api) useClaude.setState({ link: 'offline' })
 })
 
@@ -277,11 +284,23 @@ export const useClaude = create<ClaudeState>((set, get) => {
       return get().start(projectId)
     },
     start: (projectId) => {
-      const id = `c${nextConv++}`
+      const id = `c${Date.now().toString(36)}${(nextConv++).toString(36)}`
       const now = Date.now()
       const c: Conversation = { id, projectId, title: 'New thread', messages: [greeting(projectId)], speaking: false, allowed: [], created: now, updated: now }
       set((s) => ({ convs: [...s.convs, c], current: { ...s.current, [keyOf(projectId)]: id } }))
       return id
+    },
+    remove: (convId) => {
+      const c = conv(convId)
+      if (!c) return
+      get().stop(convId)
+      const key = keyOf(c.projectId)
+      set((s) => {
+        const current = { ...s.current }
+        if (current[key] === convId) delete current[key]
+        return { convs: s.convs.filter((x) => x.id !== convId), current }
+      })
+      persist(c, true)
     },
     pick: (convId) => {
       const c = conv(convId)
@@ -334,3 +353,63 @@ export const convsFor = (convs: Conversation[], projectId: string | null) => con
 
 /** Conversations someone actually wrote in (the greeting alone doesn't count). */
 export const hasTalk = (c: Conversation) => c.messages.some((m) => m.role === 'user')
+
+// --- Keeping conversations between launches ---------------------------------------------------
+
+const saveTimers = new Map<string, number>()
+const saved = new Map<string, number>()
+
+/** Save one conversation through the local API (or delete it). */
+function persist(c: Conversation, remove = false) {
+  if (!useData.getState().api) return
+  window.clearTimeout(saveTimers.get(c.id))
+  saveTimers.delete(c.id)
+  const conversation = { ...c, speaking: false, messages: c.messages.map((m) => ({ ...m, streaming: undefined, doing: undefined })) }
+  fetch('./api/conversation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation, delete: remove || undefined }) }).catch(() => {})
+}
+
+let restored = false
+/** Bring back saved conversations when the local API comes up. */
+function restore() {
+  if (restored) return
+  restored = true
+  fetch('./api/conversations')
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list: Conversation[]) => {
+      if (!Array.isArray(list) || !list.length) return
+      const s = useClaude.getState()
+      const have = new Set(s.convs.map((c) => c.id))
+      const loaded = list
+        .filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages) && !have.has(c.id))
+        .map((c) => {
+          for (const m of c.messages) nextId = Math.max(nextId, (Number(m.id) || 0) + 1)
+          saved.set(c.id, c.updated)
+          return { ...c, speaking: false, messages: c.messages.map((m) => (m.role === 'claude' && !m.text ? { ...m, text: '(Stopped when the app closed.)' } : m)) }
+        })
+      // a project that only has an empty, just-opened thread switches to its latest saved one
+      const empty = new Set(s.convs.filter((c) => !hasTalk(c)).map((c) => c.id))
+      const current = { ...s.current }
+      const drop = new Set<string>()
+      for (const c of [...loaded].sort((a, b) => a.updated - b.updated)) {
+        const key = keyOf(c.projectId)
+        if (!current[key] || empty.has(current[key])) {
+          if (current[key]) drop.add(current[key])
+          current[key] = c.id
+        }
+      }
+      useClaude.setState({ convs: [...s.convs.filter((c) => !drop.has(c.id)), ...loaded], current })
+    })
+    .catch(() => {})
+}
+
+// save a conversation a moment after it changes, once someone has written in it
+useClaude.subscribe((s, prev) => {
+  if (s.convs === prev.convs) return
+  for (const c of s.convs) {
+    if (!hasTalk(c) || saved.get(c.id) === c.updated) continue
+    saved.set(c.id, c.updated)
+    window.clearTimeout(saveTimers.get(c.id))
+    // while Claude is answering, save every few seconds rather than on every word
+    saveTimers.set(c.id, window.setTimeout(() => persist(useClaude.getState().convs.find((x) => x.id === c.id) ?? c), c.speaking ? 3000 : 600))
+  }
+})

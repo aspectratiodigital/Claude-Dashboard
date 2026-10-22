@@ -1260,3 +1260,27 @@
     padding: 20px 22px;
   }
 }
+.cl-threads li {
+  position: relative;
+}
+.cl-del {
+  all: unset;
+  cursor: pointer;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 5px;
+  font-size: 10px;
+  color: var(--line-2);
+  opacity: 0;
+}
+.cl-threads li:hover .cl-del,
+.cl-del:focus-visible {
+  opacity: 1;
+}
+.cl-del:hover {
+  color: var(--alert);
+}
+.cl-threads li button[aria-pressed] {
+  padding-right: 24px;
+}
