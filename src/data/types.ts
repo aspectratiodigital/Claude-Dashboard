@@ -193,6 +193,55 @@ export interface Store {
   checked: string | null
 }
 
+/** A product in a site's Shopify store, with its sales over the last 30 days. */
+export interface StoreProduct {
+  id: string
+  title: string
+  status: 'ACTIVE' | 'DRAFT' | 'ARCHIVED' | string
+  type: string
+  image: string | null
+  minPrice: number
+  maxPrice: number
+  /** total stock across variants, or null when Shopify doesn't track it */
+  stock: number | null
+  variants: number
+  /** made with a bundles app (Shopify Bundles, or any app on Shopify's bundles API) */
+  bundle: boolean
+  /** units sold in the last 30 days, bundles included */
+  sold: number
+  /** of those, units that went out inside a bundle */
+  inBundles: number
+  revenue: number
+  /** revenue per day over the last 30 days, oldest first */
+  daily: number[]
+  url: string
+}
+
+/** Every product in a store, for the products view. */
+export interface StoreCatalog {
+  currency: string
+  products: StoreProduct[]
+  /** orders read for the sales figures, and whether that stopped short of 30 days */
+  orders: number
+  partial: boolean
+  checked: string
+}
+
+/** One product opened up: its options, each variant's stock and sales, and how it's bundled. */
+export interface StoreProductDetail {
+  id: string
+  options: { name: string; values: string[] }[]
+  variants: { id: string; title: string; options: Record<string, string>; sku: string | null; price: number; stock: number | null; sold: number }[]
+  /** more variants than were read (bundles can have hundreds) */
+  moreVariants: number
+  /** what a bundle is made of */
+  components: { id: string; title: string; qty: number; stock: number | null }[]
+  /** bundles this product is part of */
+  bundles: { id: string; title: string }[]
+  description: string
+  storeUrl: string | null
+}
+
 export interface Project {
   id: string
   name: string

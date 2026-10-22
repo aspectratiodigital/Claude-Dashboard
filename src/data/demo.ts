@@ -78,7 +78,7 @@ function demoStore(shop: NonNullable<Seed['shop']>, r: () => number): Store {
       { title: items[0], qty: 3, url: `${admin}/products` },
       { title: items[3], qty: 1, url: `${admin}/products` },
     ],
-    products: 34,
+    products: 11,
     checked: iso(MIN),
   }
 }

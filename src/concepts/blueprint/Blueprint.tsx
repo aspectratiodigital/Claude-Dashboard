@@ -207,7 +207,7 @@ function Legend() {
         </li>
         <li>
           <svg width="26" height="20" viewBox="0 0 26 20" aria-hidden>
-            <path d="M6 18V3h12M6 3l-3 0M15 3v5" fill="none" stroke="var(--mark)" />
+            <path d="M6 18V3h12M6 3l-3 0M15 3v5" fill="none" stroke="var(--crane)" />
           </svg>
           Crane and scan line: a build is running
         </li>
@@ -233,7 +233,7 @@ function Legend() {
         </li>
         <li>
           <svg width="26" height="20" viewBox="0 0 26 20" aria-hidden>
-            <path d="M13 4l4 6-4 6-4-6z" fill="none" stroke="currentColor" />
+            <path d="M13 4l4 6-4 6-4-6z" fill="none" stroke="var(--drone)" />
           </svg>
           Drone over the roof: Claude is working
         </li>

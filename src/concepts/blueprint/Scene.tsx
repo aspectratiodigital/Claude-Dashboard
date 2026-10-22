@@ -271,9 +271,9 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
       h.position.x = W / 2 + 0.55 + e * 1.1
       h.position.y = e * (0.25 + slot(k) * 0.5)
     })
-    // the shopfront slides out to the left when opened up; a coin rises on each new order
+    // the shopfront slides out forwards when opened up; a coin rises on each new order
     if (shop.current) {
-      shop.current.position.x = -W / 2 - 0.55 - e * 1.1
+      shop.current.position.z = D / 2 + 0.55 + e * 1.1
       const o = store?.orders[0]?.id ?? null
       if (o !== lastOrder.current.id) {
         if (lastOrder.current.id !== null) lastOrder.current.at = t
@@ -471,30 +471,33 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
           </group>
         ))}
 
-        {/* shopfront: the Shopify store the site is built on */}
+        {/* shopfront: the Shopify store the site is built on, in front of the building (facing the
+            camera when the compass points north). Its window faces +z, so it's drawn facing -x and turned. */}
         {store && (
-          <group ref={shop} position={[-W / 2 - 0.55, 0, -D / 2 + 0.5]} userData={{ part: 'store', box: [0.62, 0.62, 0.84, 0.31] }}>
-            <group position={[0, 0.25, 0]} scale={[0.56, 0.5, 0.8]}>
-              <Block fill={mats.hutFill} edge={mats.hutEdge} part="store" />
+          <group ref={shop} position={[0, 0, D / 2 + 0.55]} userData={{ part: 'store', box: [0.84, 0.62, 0.62, 0.31] }}>
+            <group rotation={[0, Math.PI / 2, 0]}>
+              <group position={[0, 0.25, 0]} scale={[0.56, 0.5, 0.8]}>
+                <Block fill={mats.hutFill} edge={mats.hutEdge} part="store" />
+              </group>
+              {/* awning over the shop window, facing out */}
+              <group position={[-0.36, 0.44, 0]} rotation={[0, 0, 0.5]} scale={[0.26, 0.03, 0.84]}>
+                <Block fill={mats.fill} edge={mats.edge} part="store" />
+              </group>
+              {/* shop window and door */}
+              <group position={[-0.285, 0.2, 0.12]} scale={[0.01, 0.24, 0.42]}>
+                <Block fill={mats.hlFill} edge={mats.hutEdge} part="store" />
+              </group>
+              <group position={[-0.285, 0.15, -0.26]} scale={[0.01, 0.3, 0.14]}>
+                <Block fill={mats.fill} edge={mats.hutEdge} part="store" />
+              </group>
+              <mesh position={[0, 0.55, 0.3]} material={mats.shopLight} raycast={noRay}>
+                <sphereGeometry args={[0.045, 10, 8]} />
+              </mesh>
+              <mesh ref={coin} material={mats.coin} visible={false} raycast={noRay}>
+                <cylinderGeometry args={[0.1, 0.1, 0.025, 20]} />
+              </mesh>
+              {dissect && <Anchor id={`bp-part-store`} position={[-0.28, 0.5, 0.4]} />}
             </group>
-            {/* awning over the shop window, facing out */}
-            <group position={[-0.36, 0.44, 0]} rotation={[0, 0, 0.5]} scale={[0.26, 0.03, 0.84]}>
-              <Block fill={mats.fill} edge={mats.edge} part="store" />
-            </group>
-            {/* shop window and door */}
-            <group position={[-0.285, 0.2, 0.12]} scale={[0.01, 0.24, 0.42]}>
-              <Block fill={mats.hlFill} edge={mats.hutEdge} part="store" />
-            </group>
-            <group position={[-0.285, 0.15, -0.26]} scale={[0.01, 0.3, 0.14]}>
-              <Block fill={mats.fill} edge={mats.hutEdge} part="store" />
-            </group>
-            <mesh position={[0, 0.55, 0.3]} material={mats.shopLight} raycast={noRay}>
-              <sphereGeometry args={[0.045, 10, 8]} />
-            </mesh>
-            <mesh ref={coin} material={mats.coin} visible={false} raycast={noRay}>
-              <cylinderGeometry args={[0.1, 0.1, 0.025, 20]} />
-            </mesh>
-            {dissect && <Anchor id={`bp-part-store`} position={[-0.28, 0.5, 0.4]} />}
           </group>
         )}
 
@@ -510,7 +513,7 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
         </group>
         <group ref={scan} visible={false}>
           <lineSegments geometry={boxEdges} scale={[W + 0.25, 0.001, D + 0.25]} raycast={noRay}>
-            <lineBasicMaterial color={pal.mark} toneMapped={false} />
+            <lineBasicMaterial color={pal.crane} toneMapped={false} />
           </lineSegments>
         </group>
         <mesh ref={lift} position={[-W / 2 - 0.12, 0, D / 2 + 0.12]} visible={false} raycast={noRay}>
@@ -520,14 +523,14 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
         <group ref={drone} visible={false}>
           <mesh position={[Math.max(W, D) * 0.75, 0, 0]} raycast={noRay}>
             <octahedronGeometry args={[0.12, 0]} />
-            <meshBasicMaterial color={pal.line} wireframe toneMapped={false} />
+            <meshBasicMaterial color={pal.drone} wireframe toneMapped={false} />
           </mesh>
         </group>
         <mesh ref={beacon} visible={false} raycast={noRay}>
           <octahedronGeometry args={[0.2, 0]} />
           <meshBasicMaterial color={pal.alert} toneMapped={false} />
         </mesh>
-        <Flags count={othersDissected ? 0 : Math.min(5, sig.issues)} w={W} d={D} />
+        <Flags count={othersDissected ? 0 : Math.min(5, sig.issues)} w={W} d={D} side={!!store} />
 
         <Anchor id={`lbl-bp-${id}`} position={[0, roofTop + 1.1, 0]} />
       </group>
@@ -535,15 +538,15 @@ function Building({ lot, index, impulses }: { lot: Lot; index: number; impulses:
   )
 }
 
-/** Little red survey flags at the front of the lot: one per open issue. */
-function Flags({ count, w, d }: { count: number; w: number; d: number }) {
+/** Little red survey flags at the front of the lot (down the side when the shopfront is there): one per open issue. */
+function Flags({ count, w, d, side }: { count: number; w: number; d: number; side: boolean }) {
   const pal = usePalette()
   const ref = useRef<THREE.Group>(null!)
   useFrame((s) => ref.current.children.forEach((f, i) => (f.children[1].rotation.y = Math.sin(s.clock.elapsedTime * 2 + i) * 0.4)))
   return (
-    <group ref={ref} position={[-w / 2 - 0.1, 0, d / 2 + 0.35]}>
+    <group ref={ref} position={side ? [-w / 2 - 0.35, 0, d / 2 - 0.1] : [-w / 2 - 0.1, 0, d / 2 + 0.35]}>
       {Array.from({ length: count }, (_, i) => (
-        <group key={i} position={[i * 0.3, 0, 0]}>
+        <group key={i} position={side ? [0, 0, -i * 0.3] : [i * 0.3, 0, 0]}>
           <mesh position={[0, 0.25, 0]} raycast={noRay}>
             <boxGeometry args={[0.02, 0.5, 0.02]} />
             <meshBasicMaterial color={pal.line} />
@@ -574,11 +577,11 @@ function Crane({ height, jib }: { height: number; jib: MutableRefObject<THREE.Gr
   return (
     <group>
       <lineSegments geometry={mast} raycast={noRay}>
-        <lineBasicMaterial color={pal.mark} />
+        <lineBasicMaterial color={pal.crane} />
       </lineSegments>
       <group ref={jib} position={[0, height, 0]}>
         <lineSegments geometry={arm} raycast={noRay}>
-          <lineBasicMaterial color={pal.mark} />
+          <lineBasicMaterial color={pal.crane} />
         </lineSegments>
       </group>
     </group>
