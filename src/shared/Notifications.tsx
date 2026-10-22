@@ -78,12 +78,13 @@ export function Toasts() {
   )
 }
 
-type Filter = 'all' | 'problems' | 'ship' | 'claude'
+type Filter = 'all' | 'problems' | 'ship' | 'claude' | 'store'
 const FILTERS: { id: Filter; label: string; kinds: NoteKind[] | null }[] = [
   { id: 'all', label: 'All', kinds: null },
   { id: 'problems', label: 'Problems', kinds: ['build-fail', 'deploy-fail', 'down', 'issue', 'perf', 'review'] },
   { id: 'ship', label: 'Builds & deploys', kinds: ['build', 'build-ok', 'deploying', 'deployed', 'merged', 'up'] },
   { id: 'claude', label: 'Claude', kinds: ['claude', 'pr', 'push'] },
+  { id: 'store', label: 'Shop', kinds: ['order', 'stock'] },
 ]
 
 export function NotesDrawer() {

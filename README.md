@@ -117,6 +117,7 @@ One building per site. Its footprint grows with this week's commits and it has o
 | Flags | Open issues |
 | A drone over the roof | Claude is working on it |
 | A ring spreading from the building | Something just happened |
+| A shopfront on the side | The site's Shopify store (a coin rises on each new order) |
 
 Click a building to select it. Click it again (or press `Enter`) to **open it up**: it separates into a cross-section you can click through, with the roof for site speed, the sign for SEO, a floor for each page, the foundation for build quality, and huts for Claude's threads.
 
@@ -128,6 +129,19 @@ The huts are stacked newest push first, so the top one (labelled **Latest push**
 
 The other six dashboards (Nexus, Helix, Township, Gallery, Arcade, Reef) were retired. Their code is in this repository's history at commit `f6032d0`, and `git checkout f6032d0` brings them back.
 
+### Shopify stores
+
+A site built on Shopify gets a shopfront on the side of its building. The dashboard spots it in the code: Hydrogen, the Storefront API or the Buy SDK in `package.json` (a headless store), or a Liquid theme's folders. The store's address comes from `.env.example` (any `xxx.myshopify.com` in it). If the code doesn't name it, or the site isn't detected, use **Attach a Shopify store** in the building's details.
+
+Open the building and click the shopfront (or the **Store** tab) for today's orders and sales, the last 7 days, recent orders and anything under 5 in stock, each linking to the Shopify admin. New orders and low stock also arrive as notifications, and Claude knows each store's numbers when you ask about it.
+
+To see the numbers, connect the store once, from the **Store** tab:
+
+- **Dev Dashboard app (new stores):** in the [Shopify Dev Dashboard](https://dev.shopify.com/dashboard), create an app, give its version the `read_orders`, `read_products` and `read_inventory` scopes, install it on the store, and paste its **Client ID** and **Client secret**. This works for stores in your own Shopify organisation.
+- **Admin API token (older stores):** if a store already has a custom app made in its admin, paste its `shpat_…` token instead. Shopify no longer lets you create new ones there.
+
+Either is kept in this computer's settings only. It isn't synced to your other computer, shown in the browser or passed to Claude. The dashboard checks each connected store every 2 minutes.
+
 ## Claude bar
 
 The **Notes with Claude** panel runs your own Claude Code, signed in with your Claude account, so there's no API key or extra billing. Pick a project in **About**, or click its building, and Claude works in that project's folder on this computer. It finds the folder from where you last used Claude Code on that repo, or from **Folder** if you've set one for that project in Settings. With **All projects** it answers from the live state of every site.
@@ -138,7 +152,13 @@ Claude can read files and look at git history freely. Before it edits a file or 
 - **In a building:** select a building and click **Open Claude**. Its details panel turns into Claude for that project, with every conversation you've had about it since the app opened. **Details** (or `Esc`) goes back.
 - **Fullscreen:** the expand button on the notes panel, or **Open fullscreen** in a building's Claude panel, opens a full Claude workspace: your projects down the left, that project's threads in the middle, and the conversation on the right. Start as many threads as you like with **+ New thread**; each one runs on its own, so Claude can work on several things at once. `Esc` closes it.
 
-Conversations are kept between launches (in the app's data folder, newest 300), and each one picks up its Claude Code session again, so Claude remembers what you discussed. Delete a thread with the ✕ next to it in fullscreen.
+Conversations are kept between launches (in the app's data folder, newest 300), and each one picks up its Claude Code session again, so Claude remembers what you discussed. Delete a thread with the ✕ next to it in fullscreen, and search them from the box above the list.
+
+- **Files in:** click the paperclip, drop files on the message box, or paste a screenshot. They're saved in the app's data folder (not your project, so they never end up in a commit) and Claude reads them with the message. Up to 25 MB each.
+- **Files out:** every file Claude writes or edits shows under its reply with **Open**, **Show in folder** and **Download**, and images get a preview. Ask for a document, an export or an image and it lands in the project's folder (or Claude's workspace folder with **All projects**). Programs and scripts only get **Show in folder**, never **Open**.
+- **Replies** are formatted (lists, tables, code). Hover one for **Copy**, and **Retry** asks again for the last reply.
+- **Instructions & files** (fullscreen, top right) works like a Claude project: instructions Claude follows in every thread about that site, plus files it can read, such as a brand guide or price list. With **All projects** selected they're your instructions for everything. They live in the sync folder when you've set one, so both computers share them.
+- **Skills & tools** (fullscreen) lists the skills, plugins, slash commands and MCP servers your Claude Code already has, including skills synced from your Claude account and ones in a project's `.claude` folder. Claude uses skills by itself when they fit. To use one on purpose, type `/` in the message box and pick it, or click it in the list. It also offers to add the Shopify Dev MCP, which gives Claude Shopify's docs and API schemas for Hydrogen work.
 
 ### Laptop and PC sharing the same chats
 

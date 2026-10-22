@@ -503,17 +503,23 @@
 }
 .cl-compose form {
   display: flex;
+  align-items: flex-end;
   gap: 8px;
   border-bottom: 1.5px solid var(--line);
   padding: 6px 0;
 }
-.cl-compose input {
+.cl-compose textarea {
   all: unset;
   flex: 1;
   min-width: 0;
   font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-y: auto;
+  resize: none;
+  align-self: center;
 }
-.cl-compose input::placeholder {
+.cl-compose textarea::placeholder {
   color: var(--line-2);
 }
 .cl-compose form button:disabled {
@@ -836,6 +842,533 @@
   align-self: flex-start;
   font-size: 11px;
   color: var(--mark);
+}
+
+/* --- Store: the shopfront panel -------------------------------------------------------- */
+button.bp-link {
+  all: unset;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--mark);
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+.bp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.bp-actions .bp-open {
+  text-decoration: none;
+}
+.bp-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.bp-kpis figure {
+  margin: 0;
+  padding: 8px;
+  border: 1px dashed var(--line-3);
+  display: grid;
+  gap: 4px;
+}
+.bp-kpis b {
+  font: 700 16px 'Archivo', sans-serif;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.bp-kpis figcaption,
+.bp-spark span {
+  font-size: 10px;
+  color: var(--line-2);
+}
+.bp-spark {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+  color: var(--go);
+}
+.bp-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--line-3);
+}
+.bp-form label {
+  display: grid;
+  gap: 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--line-2);
+}
+.bp-form input {
+  font: 12px 'IBM Plex Mono', monospace;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-3);
+  padding: 6px 8px;
+  outline: none;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.bp-form input:focus {
+  border-color: var(--mark);
+}
+.bp-form code {
+  color: var(--ink);
+}
+.bp-form a {
+  color: var(--mark);
+}
+.bp-seg {
+  display: flex;
+  gap: 4px;
+}
+.bp-seg button {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px dashed var(--line-2);
+}
+.bp-seg button[aria-pressed='true'] {
+  background: var(--mark);
+  color: var(--paper);
+  border: 1px solid var(--mark);
+}
+.bp-open:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* --- Claude: files, Markdown, the / picker and the workspace drawers ------------------------ */
+.cl-compose {
+  position: relative;
+}
+.cl-compose[data-over] form {
+  border-bottom-style: dashed;
+  border-color: var(--mark);
+}
+.cl-compose[data-over]::after {
+  content: 'Drop to attach';
+  position: absolute;
+  inset: -6px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--mark);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border: 1px dashed var(--mark);
+  pointer-events: none;
+}
+.cl-compose form .cl-clip {
+  border: 0;
+  padding: 4px;
+  color: var(--line-2);
+}
+.cl-compose form .cl-clip:hover {
+  color: var(--paper);
+}
+.cl-err {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--alert);
+}
+.cl-chips {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 6px;
+  font-size: 11px;
+  border: 1px solid var(--line-3);
+}
+.cl-chip img {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+}
+.cl-chip b {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+.cl-chip span {
+  color: var(--line-2);
+}
+.cl-chip button,
+.cl-del-inline {
+  all: unset;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--line-2);
+  padding: 0 2px;
+}
+.cl-chip button:hover,
+.cl-del-inline:hover {
+  color: var(--alert);
+}
+.cl-files {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.cl-file {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line-3);
+  font-size: 11px;
+}
+.cl-file img {
+  max-width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  justify-self: start;
+  border: 1px solid var(--line-3);
+}
+.cl-file > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.cl-file b {
+  font-weight: 600;
+  color: var(--ink);
+  word-break: break-all;
+}
+.cl-file span,
+.cl-file em {
+  color: var(--line-2);
+}
+.cl-file button,
+.cl-file a,
+.cl-acts button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  border: 1px dashed var(--line-2);
+  color: var(--line);
+}
+.cl-file button:hover,
+.cl-file a:hover,
+.cl-acts button:hover:not(:disabled) {
+  border: 1px solid var(--mark);
+  color: var(--mark);
+}
+.cl-acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.cl-log > li:hover .cl-acts,
+.cl-log > li:last-child .cl-acts,
+.cl-acts:focus-within {
+  opacity: 1;
+}
+.cl-acts button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cl-md {
+  overflow-wrap: anywhere;
+}
+.cl-md > :first-child {
+  margin-top: 0;
+}
+.cl-md > :last-child {
+  margin-bottom: 0;
+}
+.cl-md p,
+.cl-md ul,
+.cl-md ol,
+.cl-md pre,
+.cl-md table,
+.cl-md blockquote {
+  margin: 0 0 8px;
+  white-space: normal;
+}
+.cl-md ul,
+.cl-md ol {
+  padding-left: 18px;
+}
+.cl-md h1,
+.cl-md h2,
+.cl-md h3,
+.cl-md h4 {
+  margin: 10px 0 6px;
+  font: 700 1.05em 'Archivo', sans-serif;
+  color: var(--ink);
+}
+.cl-md code {
+  font: 0.95em 'IBM Plex Mono', monospace;
+  padding: 0 3px;
+  background: var(--line-3);
+}
+.cl-md pre {
+  padding: 8px 10px;
+  overflow-x: auto;
+  background: var(--shade);
+  border: 1px solid var(--line-3);
+}
+.cl-md pre code {
+  padding: 0;
+  background: none;
+}
+.cl-md table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.cl-md th,
+.cl-md td {
+  border: 1px solid var(--line-3);
+  padding: 3px 6px;
+  text-align: left;
+}
+.cl-md blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--line-2);
+  color: var(--line-2);
+}
+.cl-md a {
+  color: var(--mark);
+}
+.cl-slash {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 5;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  backdrop-filter: blur(6px);
+}
+.cl-slash button,
+.cl-extras button {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  font-size: 11.5px;
+}
+.cl-slash [aria-selected='true'] button,
+.cl-extras button:hover {
+  background: var(--line-3);
+}
+.cl-slash b,
+.cl-extras b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.cl-slash em,
+.cl-extras em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--line-2);
+}
+.cl-slash span,
+.cl-extras span {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  color: var(--line-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-search {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 8px;
+  margin: 6px 0;
+  font-size: 11.5px;
+  border: 1px solid var(--line-3);
+}
+.cl-search:focus {
+  border-color: var(--mark);
+}
+.cl-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+@media (min-width: 1300px) {
+  /* room for the drawer beside the conversation */
+  .cl-body[data-drawer] {
+    padding-right: 420px;
+  }
+}
+.cl-head-acts {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.cl-head-acts .cl-close {
+  margin-left: 0;
+}
+.cl-tool {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-3);
+}
+.cl-tool:hover,
+.cl-tool[aria-pressed='true'] {
+  border-color: var(--mark);
+  color: var(--mark);
+}
+.cl-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  width: min(400px, 100%);
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 20px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+  border-left: 1.5px solid var(--line);
+  backdrop-filter: blur(8px);
+}
+.cl-drawer header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 !important;
+  border: 0 !important;
+}
+.cl-drawer h3 {
+  margin: 0;
+  font: 700 15px 'Archivo', sans-serif;
+  color: var(--ink);
+}
+.cl-drawer h4 {
+  margin: 8px 0 0;
+  font: 700 11px 'Archivo', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--line-2);
+}
+.cl-field {
+  display: grid;
+  gap: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--line-2);
+}
+.cl-field textarea {
+  font: 12px/1.5 'IBM Plex Mono', monospace;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-3);
+  padding: 8px;
+  resize: vertical;
+  outline: none;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.cl-field textarea:focus {
+  border-color: var(--mark);
+}
+.cl-kfiles,
+.cl-extras {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.cl-kfiles li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 4px 0;
+  font-size: 11.5px;
+  border-bottom: 1px dashed var(--line-3);
+}
+.cl-kfiles li[data-off] {
+  opacity: 0.5;
+}
+.cl-kfiles li b {
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-kfiles li span {
+  grid-column: 2 / -1;
+  font-size: 10.5px;
+  color: var(--line-2);
+}
+.cl-kfiles li.bp-help {
+  display: block;
+  border: 0;
+}
+.cl-kfiles li .cl-del-inline {
+  grid-column: 3;
+  grid-row: 1;
+}
+.cl-suggest {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px dashed var(--mark);
+}
+.cl-suggest b {
+  color: var(--ink);
+  font-size: 12px;
+}
+.cl-drawer .bp-open,
+.cl-drawer .bp-actions .bp-open {
+  text-decoration: none;
 }
 
 /* --- Themes: Blueprint (default), Light and Dark ---------------------------------------- */
@@ -1249,7 +1782,7 @@
   width: 100%;
   max-width: 860px;
 }
-.cl-main .cl-compose input {
+.cl-main .cl-compose textarea {
   font-size: 14px;
 }
 @media (max-width: 1100px) {
@@ -1273,6 +1806,14 @@
   font-size: 10px;
   color: var(--line-2);
   opacity: 0;
+}
+.cl-threads li .cl-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: auto;
+  padding: 2px 5px;
+  border: 0;
 }
 .cl-threads li:hover .cl-del,
 .cl-del:focus-visible {

@@ -20,6 +20,23 @@ export interface Ask {
   what: string
 }
 
+/** a file attached to a message (saved by the local API under uploads) */
+export interface Attachment {
+  id: string
+  name: string
+  /** where it's saved on the computer that uploaded it */
+  path: string
+  size: number
+  type: string
+}
+
+/** a file Claude wrote or edited while answering */
+export interface MadeFile {
+  path: string
+  name: string
+  action: 'created' | 'edited'
+}
+
 export interface ChatMessage {
   id: number
   role: 'user' | 'claude'
@@ -31,6 +48,8 @@ export interface ChatMessage {
   asks?: Ask[]
   answered?: 'allowed' | 'declined'
   error?: boolean
+  attachments?: Attachment[]
+  files?: MadeFile[]
 }
 
 export interface Conversation {
@@ -89,7 +108,9 @@ interface ClaudeState {
   pick: (convId: string) => void
   /** forget a conversation (here and on disk) */
   remove: (convId: string) => void
-  send: (convId: string, text: string) => void
+  send: (convId: string, text: string, attachments?: Attachment[]) => void
+  /** ask again for the last reply */
+  retry: (convId: string) => void
   answer: (convId: string, msgId: number, ok: boolean) => void
   stop: (convId: string) => void
 }
@@ -209,7 +230,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
     }, 420)
   }
 
-  const run = async (convId: string, replyId: number, prompt: string, allow?: string[]) => {
+  const run = async (convId: string, replyId: number, prompt: string, allow?: string[], files?: string[]) => {
     const c = conv(convId)
     if (!c) return
     const ctl = new AbortController()
@@ -229,6 +250,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
           allow: allowed,
           model: get().model || undefined,
           effort: get().effort || undefined,
+          files: files?.length ? files : undefined,
         }),
         signal: ctl.signal,
       })
@@ -248,6 +270,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
           const e = JSON.parse(raw)
           if (e.type === 'text') patchMsg(convId, replyId, (m) => ({ text: m.text + e.text, doing: undefined }))
           else if (e.type === 'tool') patchMsg(convId, replyId, () => ({ doing: e.text }))
+          else if (e.type === 'file') patchMsg(convId, replyId, (m) => ({ files: [...(m.files ?? []).filter((f) => f.path !== e.path), { path: e.path, name: e.name, action: e.action }] }))
           else if (e.type === 'error') patchMsg(convId, replyId, (m) => ({ text: m.text ? `${m.text}\n\n${e.text}` : e.text, error: true }))
           else if (e.type === 'done') {
             if (e.session) patchConv(convId, () => ({ session: e.session, sessionHost: localHost || undefined, allowed }))
@@ -328,8 +351,9 @@ export const useClaude = create<ClaudeState>((set, get) => {
       const c = conv(convId)
       if (c) set((s) => ({ current: { ...s.current, [keyOf(c.projectId)]: convId } }))
     },
-    send: (convId, prompt) => {
-      const text = prompt.trim()
+    send: (convId, prompt, attachments) => {
+      const files = attachments?.length ? attachments : undefined
+      const text = prompt.trim() || (files ? `Have a look at ${files.length === 1 ? files[0].name : 'these files'}.` : '')
       const c = conv(convId)
       if (!text || !c || c.speaking) return
       window.clearInterval(timers.get(convId))
@@ -341,12 +365,22 @@ export const useClaude = create<ClaudeState>((set, get) => {
         title: x.messages.some((m) => m.role === 'user') ? x.title : text.length > 60 ? `${text.slice(0, 57)}…` : text,
         messages: [
           ...x.messages.map((m) => ({ ...m, streaming: false })),
-          { id: userId, role: 'user', text },
+          { id: userId, role: 'user', text, attachments: files },
           { id: replyId, role: 'claude', text: '', streaming: true, doing: live ? 'Thinking' : undefined },
         ],
       }))
-      if (live) run(convId, replyId, text)
+      if (live) run(convId, replyId, text, undefined, files?.map((f) => f.id))
       else playback(convId, replyId, get().link === 'missing' ? MISSING : compose(text, c.projectId))
+    },
+    retry: (convId) => {
+      const c = conv(convId)
+      if (!c || c.speaking) return
+      let at = c.messages.length - 1
+      while (at >= 0 && c.messages[at].role !== 'user') at--
+      if (at < 0) return
+      const ask = c.messages[at]
+      patchConv(convId, (x) => ({ messages: x.messages.slice(0, at) }))
+      get().send(convId, ask.text, ask.attachments)
     },
     answer: (convId, msgId, ok) => {
       const c = conv(convId)
@@ -397,7 +431,7 @@ function transcript(c: Conversation) {
   return msgs
     .slice(first < 0 ? msgs.length : first)
     .filter((m) => m.text.trim())
-    .map((m) => `${m.role === 'user' ? 'Dylan' : 'Claude'}: ${m.text.trim()}`)
+    .map((m) => `${m.role === 'user' ? 'Dylan' : 'Claude'}: ${m.text.trim()}${m.attachments?.length ? ` [attached: ${m.attachments.map((a) => a.name).join(', ')}]` : ''}${m.files?.length ? ` [wrote: ${m.files.map((f) => f.path).join(', ')}]` : ''}`)
     .join('\n\n')
 }
 
@@ -518,3 +552,26 @@ useClaude.subscribe((s, prev) => {
     saveTimers.set(c.id, window.setTimeout(() => persist(useClaude.getState().convs.find((x) => x.id === c.id) ?? c), c.speaking ? 3000 : 600))
   }
 })
+
+// --- Files ---------------------------------------------------------------------------------------
+
+/** Save a file for the next message through the local API. */
+export async function uploadFile(file: File): Promise<Attachment> {
+  const r = await fetch(`./api/upload?name=${encodeURIComponent(file.name || 'pasted.png')}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j.error ?? `Upload failed (${r.status})`)
+  return j as Attachment
+}
+
+export const fileUrl = (path: string, download = false) => `./api/file?path=${encodeURIComponent(path)}${download ? '&download=1' : ''}`
+
+/** Open a file with its usual app (or show it in its folder). */
+export async function openFile(path: string, reveal = false): Promise<string | null> {
+  try {
+    const r = await fetch('./api/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, reveal }) })
+    const j = await r.json().catch(() => ({}))
+    return r.ok ? null : (j.error ?? 'Could not open it')
+  } catch {
+    return 'Could not reach the local API'
+  }
+}

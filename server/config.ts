@@ -15,6 +15,8 @@ export interface ProjectOverride {
   /** the project's folder on this computer, where the Claude bar works */
   folder?: string
   hidden?: boolean
+  /** the site's Shopify store (xxx.myshopify.com), when the code doesn't name it */
+  shopify?: string
 }
 
 export interface Config {
@@ -38,6 +40,8 @@ export interface Settings {
   projects?: Record<string, ProjectOverride>
   /** a folder (e.g. in OneDrive) shared with your other computers: chats, theme and site links sync through it */
   syncDir?: string
+  /** Shopify access by store domain (an Admin API token, or a Dev Dashboard app's client ID + secret): this computer only, never synced */
+  shopifyTokens?: Record<string, string | { id: string; secret: string } | null>
 }
 
 const DEFAULTS: Config = {
@@ -81,6 +85,10 @@ export function projectSettings(settings = loadSettings()): Record<string, Proje
 export function saveSettings(patch: Settings) {
   const cur = loadSettings()
   const next: Settings = { ...cur, ...patch }
+  if (patch.shopifyTokens) {
+    next.shopifyTokens = { ...(cur.shopifyTokens ?? {}), ...patch.shopifyTokens }
+    for (const [k, v] of Object.entries(next.shopifyTokens)) if (!v) delete next.shopifyTokens[k]
+  }
   if (patch.projects) {
     next.projects = { ...(cur.projects ?? {}) }
     for (const [k, v] of Object.entries(patch.projects)) next.projects[k] = { ...next.projects[k], ...v }

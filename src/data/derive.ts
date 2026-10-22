@@ -30,9 +30,11 @@ export const KIND_LABEL: Record<NoteKind, string> = {
   down: 'Site down',
   up: 'Back up',
   perf: 'Slower',
+  order: 'New order',
+  stock: 'Low stock',
 }
 
-export const ALL_KINDS: NoteKind[] = ['build', 'build-ok', 'build-fail', 'deploying', 'deployed', 'deploy-fail', 'issue', 'pr', 'review', 'merged', 'push', 'claude', 'down', 'up', 'perf']
+export const ALL_KINDS: NoteKind[] = ['build', 'build-ok', 'build-fail', 'deploying', 'deployed', 'deploy-fail', 'issue', 'pr', 'review', 'merged', 'push', 'claude', 'down', 'up', 'perf', 'order', 'stock']
 
 export const LEVEL_OF: Record<NoteKind, NoteLevel> = {
   build: 'progress',
@@ -50,6 +52,8 @@ export const LEVEL_OF: Record<NoteKind, NoteLevel> = {
   down: 'critical',
   up: 'success',
   perf: 'warning',
+  order: 'success',
+  stock: 'warning',
 }
 
 /** What a scene needs to draw a project's current state. */

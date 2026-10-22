@@ -171,6 +171,28 @@ export interface Quality {
   grade: 'A' | 'B' | 'C' | 'D' | 'F' | null
 }
 
+/** A Shopify store behind a site (usually headless: Hydrogen or the Storefront API). */
+export interface Store {
+  /** the store's myshopify.com domain */
+  domain: string
+  /** how the site talks to Shopify, from its code: 'Hydrogen', 'Storefront API', or null if set by hand */
+  headless: string | null
+  /** an Admin API token is saved on this computer and works */
+  connected: boolean
+  error: string | null
+  name: string | null
+  currency: string | null
+  adminUrl: string
+  ordersToday: number
+  salesToday: number
+  /** sales per day over the last 7 days, oldest first */
+  sales7: number[]
+  orders: { id: string; name: string; total: number; at: string; status: string; url: string }[]
+  lowStock: { title: string; qty: number; url: string }[]
+  products: number | null
+  checked: string | null
+}
+
 export interface Project {
   id: string
   name: string
@@ -202,6 +224,8 @@ export interface Project {
   pages: Page[]
   health: Health
   quality: Quality
+  /** the Shopify store this site sells through, if any */
+  store: Store | null
 }
 
 export type NoteKind =
@@ -220,6 +244,8 @@ export type NoteKind =
   | 'down'
   | 'up'
   | 'perf'
+  | 'order'
+  | 'stock'
 
 export type NoteLevel = 'info' | 'progress' | 'success' | 'warning' | 'critical'
 
