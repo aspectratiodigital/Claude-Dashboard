@@ -13,7 +13,7 @@ You need [Node.js 20 or newer](https://nodejs.org) (22 LTS recommended) and Git,
 ```powershell
 cd D:\Claude-Dashboard
 git fetch origin
-git checkout claude/project-thread-35jdu8
+git checkout main
 git pull
 npm install
 npm run dist
@@ -43,13 +43,14 @@ Close PowerShell and open a new one so it finds them, then:
 cd D:\
 git clone https://github.com/aspectratiodigital/Claude-Dashboard.git
 cd Claude-Dashboard
-git checkout claude/project-thread-35jdu8
 npm.cmd ci
 npm.cmd run dist
 start "release\ARD Blueprint Setup 0.1.0.exe"
 ```
 
 The repo is private, so the first `git clone` opens a GitHub sign-in window. Once the app opens, connect GitHub in Settings, and set up the Claude bar (below) on that PC too. It then updates itself from that folder like the first one.
+
+The app updates from whichever branch its folder has checked out, which should be `main`. To check, run `git branch --show-current` in the folder.
 
 ## Run it in the browser
 
@@ -58,7 +59,7 @@ For working on the dashboard itself, from `D:\Claude-Dashboard`:
 ```powershell
 cd D:\Claude-Dashboard
 git fetch origin
-git checkout claude/project-thread-35jdu8
+git checkout main
 git pull
 npm install
 npm run dev
