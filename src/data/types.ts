@@ -29,6 +29,9 @@ export interface Pull {
   sessionUrl?: string
   checks: 'pass' | 'fail' | 'running' | 'none'
   reviewRequested: boolean
+  headSha?: string
+  /** when the PR's latest commit was made (its last push) */
+  pushed?: string
 }
 
 export interface Issue {
@@ -75,6 +78,8 @@ export interface Thread {
   source: 'claude-web' | 'claude-local' | 'pr'
   status: 'working' | 'open' | 'merged' | 'closed' | 'idle'
   updated: string
+  /** when its latest commit was pushed; threads are sorted on this, newest first */
+  pushed?: string
   branch?: string
   /** opens the thread in Claude */
   url?: string
@@ -84,6 +89,19 @@ export interface Thread {
   summary?: string
   /** for local sessions: `claude --resume <id>` */
   resume?: string
+}
+
+/** What one thread's push changed, fetched on demand when you open it. */
+export interface Change {
+  /** a few plain-English sentences */
+  summary: string[]
+  /** the PR description, with Claude's attribution lines taken out */
+  body: string | null
+  commits: { sha: string; message: string; date: string; url: string }[]
+  files: { path: string; status: 'added' | 'modified' | 'removed' | 'renamed'; additions: number; deletions: number }[]
+  additions: number
+  deletions: number
+  url: string | null
 }
 
 export type Category = 'performance' | 'accessibility' | 'bestPractices' | 'seo'
