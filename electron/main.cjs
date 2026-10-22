@@ -48,7 +48,7 @@ function createWindow(url) {
 
   // External links open in the default browser, not inside the dashboard.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
     return { action: 'deny' }
   })
 

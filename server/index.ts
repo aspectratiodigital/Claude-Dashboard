@@ -11,6 +11,9 @@ import { ask, findClaude, runClaude, stopAll } from './assistant.ts'
 import { changePrompt } from '../src/data/describe.ts'
 import { deleteConversation, host, listConversations, loadShared, oneDriveSuggestion, saveConversation, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
 import { blankStore, cleanDomain, loadStore, type ShopifyCred } from './shopify.ts'
+import { MAX_UPLOAD, UPLOADS, WORKSPACE, openOnDesktop, opensSafely, readRaw, saveUpload, sendFile, uploadPath, within } from './files.ts'
+import { addKnowledgeFile, knowledgeDir, knowledgeFor, readKnowledge, removeKnowledgeFile, saveInstructions } from './knowledge.ts'
+import { addSuggested, listExtras } from './extras.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
@@ -554,6 +557,16 @@ function relTime(iso: string) {
 
 const engine = new Engine()
 
+/** Folders whose files the dashboard may open or hand out: projects, Claude's workspace, uploads, knowledge. */
+function fileRoots() {
+  const roots = [WORKSPACE, UPLOADS, path.dirname(knowledgeDir('_all')!)]
+  for (const p of engine.projects) {
+    const f = engine.folderFor(p)
+    if (f) roots.push(f)
+  }
+  return roots
+}
+
 function json(res: ServerResponse, code: number, body: unknown) {
   res.statusCode = code
   res.setHeader('Content-Type', 'application/json')
@@ -640,9 +653,68 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
           model: typeof body.model === 'string' ? body.model : undefined,
           effort: typeof body.effort === 'string' ? body.effort : undefined,
           history: typeof body.history === 'string' ? body.history.slice(-60_000) : undefined,
+          files: Array.isArray(body.files) ? (body.files as unknown[]).slice(0, 20).map((id) => (typeof id === 'string' ? uploadPath(id) : null)).filter((f): f is string => !!f) : undefined,
+          knowledge: knowledgeFor(site?.id ?? null),
         },
         res,
       )
+    }
+
+    case 'POST /api/upload': {
+      // a file attached to a message: the raw bytes, named in the query string
+      const name = url.searchParams.get('name') ?? 'file'
+      const data = await readRaw(req, MAX_UPLOAD)
+      if (!data) return json(res, 413, { error: 'Files can be up to 25 MB' })
+      return json(res, 200, saveUpload(name, data))
+    }
+
+    case 'GET /api/file': {
+      // a file Claude made (or you attached), for a preview or a download
+      if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
+      const file = within(url.searchParams.get('path') ?? '', fileRoots())
+      if (!file) return json(res, 404, { error: 'That file isn’t in one of your project folders' })
+      return sendFile(res, file, url.searchParams.get('download') === '1')
+    }
+
+    case 'POST /api/open': {
+      const body = await readBody(req)
+      const file = within(typeof body.path === 'string' ? body.path : '', fileRoots())
+      if (!file) return json(res, 404, { error: 'That file isn’t in one of your project folders' })
+      const reveal = body.reveal === true || !opensSafely(file)
+      return json(res, 200, { ok: openOnDesktop(file, reveal), revealed: reveal })
+    }
+
+    case 'GET /api/knowledge': {
+      const key = url.searchParams.get('project') || '_all'
+      return json(res, 200, { ...readKnowledge(key), dir: knowledgeDir(key) })
+    }
+
+    case 'POST /api/knowledge': {
+      const body = await readBody(req, 200_000)
+      const key = typeof body.project === 'string' && body.project ? body.project : '_all'
+      if (typeof body.instructions === 'string' && !saveInstructions(key, body.instructions)) return json(res, 400, { error: 'bad project' })
+      if (typeof body.remove === 'string') removeKnowledgeFile(key, body.remove)
+      return json(res, 200, readKnowledge(key))
+    }
+
+    case 'POST /api/knowledge/file': {
+      const key = url.searchParams.get('project') || '_all'
+      const data = await readRaw(req, MAX_UPLOAD)
+      if (!data) return json(res, 413, { error: 'Files can be up to 25 MB' })
+      if (!addKnowledgeFile(key, url.searchParams.get('name') ?? 'file', data)) return json(res, 400, { error: 'bad project' })
+      return json(res, 200, readKnowledge(key))
+    }
+
+    case 'GET /api/claude/extras': {
+      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
+      return json(res, 200, listExtras(p ? engine.folderFor(p) : null))
+    }
+
+    case 'POST /api/claude/mcp': {
+      const body = await readBody(req)
+      const exe = await findClaude(loadSettings().claudePath)
+      if (!exe) return json(res, 503, { error: 'Claude Code is not installed on this computer' })
+      return json(res, 200, await addSuggested(exe, String(body.id ?? '')))
     }
 
     case 'POST /api/refresh':

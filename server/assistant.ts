@@ -32,6 +32,7 @@ export type ClaudeEvent =
   | { type: 'start'; session: string | null; folder: string }
   | { type: 'text'; text: string }
   | { type: 'tool'; text: string }
+  | { type: 'file'; path: string; name: string; action: 'created' | 'edited' }
   | { type: 'done'; session: string | null; asks: Ask[] }
   | { type: 'error'; text: string }
 
@@ -84,7 +85,8 @@ function brief(p: Project) {
 function contextFor(projects: Project[], site: Project | null, folder: string | null) {
   const lines = [
     "You're the assistant inside Dylan's Blueprint dashboard for his web studio, Aspect Ratio Digital. It shows his sites, pulled live from GitHub.",
-    'Reply in plain, friendly sentences and keep it short: the reply appears in a small panel. No headings or tables.',
+    'Reply in plain, friendly sentences and keep it short. Replies are shown as Markdown, so lists, code blocks and the odd table are fine, but skip big headings.',
+    "When Dylan asks for a file (a document, image, export or code), write it into the working folder and mention its name: the dashboard shows each file you write with Open and Download buttons.",
     "If something you try is refused for permission, say in one line what you wanted to do and why. Dylan will see an Allow button for it.",
     '',
     'Current state of every project:',
@@ -103,7 +105,7 @@ function contextFor(projects: Project[], site: Project | null, folder: string | 
 
 // --- Running Claude Code ---------------------------------------------------------------------------
 
-function quoteForCmd(arg: string) {
+export function quoteForCmd(arg: string) {
   if (/["%^&|<>!\r\n]/.test(arg)) throw new Error(`unsafe character in argument: ${arg}`)
   return /\s/.test(arg) ? `"${arg}"` : arg
 }
@@ -151,6 +153,10 @@ export interface RunOptions {
   effort?: string
   /** the conversation so far, when its Claude Code session lives on another computer */
   history?: string
+  /** files attached to this message (already checked to be uploads) */
+  files?: string[]
+  /** project instructions and knowledge folders */
+  knowledge?: { text: string; dirs: string[] }
 }
 
 const running = new Set<ChildProcess>()
@@ -167,15 +173,28 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   const work = o.folder && fs.existsSync(o.folder) ? o.folder : path.join(DATA_DIR, 'claude-workspace')
   fs.mkdirSync(work, { recursive: true })
   const allow = [...READ_ONLY, ...(o.allow ?? []).filter((r) => typeof r === 'string' && r.length < 2000)]
-  const settings = path.join(DATA_DIR, `claude-settings-${process.pid}-${Date.now()}.json`)
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  const settings = path.join(DATA_DIR, `claude-settings-${stamp}.json`)
   fs.writeFileSync(settings, JSON.stringify({ permissions: { allow } }))
+  // the dashboard's context goes in as a system prompt, so the message itself stays
+  // exactly what Dylan typed (which is what lets /skills and /commands work)
+  const earlier = !o.resume && o.history ? `\n\nEarlier in this conversation (on Dylan's other computer, so you can't see it in your own history):\n${o.history}` : ''
+  const know = o.knowledge?.text ? `\n\n${o.knowledge.text}` : ''
+  const system = path.join(DATA_DIR, `claude-context-${stamp}.md`)
+  fs.writeFileSync(system, `${contextFor(o.projects, o.site, o.folder)}${know}${earlier}`)
 
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'default', '--settings', settings]
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'default', '--settings', settings, '--append-system-prompt-file', system]
+  const extra = [...new Set([...(o.files ?? []).map((f) => path.dirname(path.dirname(f))), ...(o.knowledge?.dirs ?? [])])].filter((d) => fs.existsSync(d))
+  if (extra.length) args.push('--add-dir', ...extra)
   if (o.resume && UUID.test(o.resume)) args.push('--resume', o.resume)
   if (o.model && (MODELS as readonly string[]).includes(o.model)) args.push('--model', o.model)
   if (o.effort && (EFFORTS as readonly string[]).includes(o.effort)) args.push('--effort', o.effort)
-  const earlier = !o.resume && o.history ? `\n\nEarlier in this conversation (on Dylan's other computer, so you can't see it in your own history):\n${o.history}` : ''
-  const prompt = o.resume ? o.prompt : `${contextFor(o.projects, o.site, o.folder)}${earlier}\n\nDylan asks: ${o.prompt}`
+  const attached = o.files?.length ? `\n\nAttached files (read them with the Read tool):\n${o.files.map((f) => `- ${f}`).join('\n')}` : ''
+  const prompt = `${o.prompt}${attached}`
+  const cleanup = () => {
+    fs.rmSync(settings, { force: true })
+    fs.rmSync(system, { force: true })
+  }
 
   const shim = /\.(cmd|bat)$/i.test(o.exe)
   let child: ChildProcess
@@ -184,7 +203,7 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
       ? spawn([o.exe, ...args].map(quoteForCmd).join(' '), { cwd: work, shell: true, windowsHide: true })
       : spawn(o.exe, args, { cwd: work, windowsHide: true })
   } catch (e) {
-    fs.rmSync(settings, { force: true })
+    cleanup()
     send({ type: 'error', text: (e as Error).message })
     return res.end()
   }
@@ -197,6 +216,9 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   let errText = ''
   let finished = false
   const asks: Ask[] = []
+  /** file-writing tool calls waiting for their result: tool_use id -> file */
+  const writes = new Map<string, { file: string; action: 'created' | 'edited' }>()
+  const sent = new Set<string>()
   send({ type: 'start', session, folder: o.folder && fs.existsSync(o.folder) ? o.folder : '' })
 
   const finish = (e?: ClaudeEvent) => {
@@ -204,7 +226,7 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
     finished = true
     clearTimeout(limit)
     running.delete(child)
-    fs.rmSync(settings, { force: true })
+    cleanup()
     if (e) send(e)
     send({ type: 'done', session, asks })
     res.end()
@@ -230,8 +252,20 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
       streamed = false
     } else if (d.type === 'assistant') {
       for (const c of d.message?.content ?? []) {
-        if (c.type === 'tool_use') send({ type: 'tool', text: toolLine(c.name, c.input ?? {}) })
+        if (c.type === 'tool_use') {
+          send({ type: 'tool', text: toolLine(c.name, c.input ?? {}) })
+          const file = c.input?.file_path ?? c.input?.notebook_path
+          if (typeof file === 'string' && /^(Write|Edit|MultiEdit|NotebookEdit)$/.test(c.name)) writes.set(c.id, { file: path.resolve(work, file), action: c.name === 'Write' && !fs.existsSync(path.resolve(work, file)) ? 'created' : 'edited' })
+        }
         else if (c.type === 'text' && !streamed && c.text) send({ type: 'text', text: c.text })
+      }
+    } else if (d.type === 'user') {
+      // a file Claude wrote or edited: offer it to open or download
+      for (const c of d.message?.content ?? []) {
+        const w = c.type === 'tool_result' && !c.is_error ? writes.get(c.tool_use_id) : undefined
+        if (!w || sent.has(w.file)) continue
+        sent.add(w.file)
+        send({ type: 'file', path: w.file, name: path.basename(w.file), action: w.action })
       }
     } else if (d.type === 'result') {
       for (const den of d.permission_denials ?? []) {
