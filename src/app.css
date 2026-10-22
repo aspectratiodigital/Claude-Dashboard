@@ -1,0 +1,162 @@
+@import '@fontsource/archivo/400.css';
+@import '@fontsource/archivo/700.css';
+@import '@fontsource/archivo/900.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+body {
+  -webkit-font-smoothing: antialiased;
+}
+button {
+  font: inherit;
+}
+
+/* Design tokens: shared UI (tray, toasts, drawer, settings, previews,
+   palette) reads only these. */
+.app {
+  position: fixed;
+  inset: 0;
+  /* clip, not hidden: nothing (focus, scrollIntoView) can scroll the app sideways */
+  overflow: clip;
+  --ui-bg: #123a6b;
+  --ui-solid: #123a6b;
+  --ui-fg: #dbe8ff;
+  --ui-muted: #94b0d8;
+  --ui-line: rgba(219, 232, 255, 0.4);
+  --ui-ac: #ffd23f;
+  --ui-ac-fg: #0c2443;
+  --ui-font: 'IBM Plex Mono', monospace;
+  --ui-display: 'Archivo', sans-serif;
+  --ui-mono: 'IBM Plex Mono', monospace;
+  --ui-radius: 0px;
+  --ui-blur: 0px;
+  --lv-info: #7aa7ff;
+  --lv-progress: #ffd23f;
+  --lv-success: #7dffb0;
+  --lv-warning: #ffcc4d;
+  --lv-critical: #ff6b6b;
+}
+
+.boot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--ui-fg);
+  font: 14px var(--ui-font);
+  letter-spacing: 0.08em;
+}
+
+/* 3D-anchored labels (see shared/Labels.tsx) */
+.label-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: clip;
+  pointer-events: none;
+}
+.label-layer > * {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  will-change: transform;
+}
+
+/* Palette ---------------------------------------------------------------- */
+.palette-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+  animation: fade 0.18s ease-out;
+}
+.palette {
+  width: min(580px, 92vw);
+  background: var(--ui-solid);
+  box-shadow: inset 0 0 0 1px var(--ui-line), 0 30px 80px rgba(0, 0, 0, 0.4);
+  border-radius: var(--ui-radius);
+  color: var(--ui-fg);
+  font-family: var(--ui-font);
+  overflow: hidden;
+  animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+.palette input {
+  all: unset;
+  display: block;
+  width: 100%;
+  padding: 16px 18px;
+  font-size: 16px;
+  border-bottom: 1px solid var(--ui-line);
+}
+.palette ul {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 50vh;
+  overflow: auto;
+}
+.palette li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 12px;
+  border-radius: calc(var(--ui-radius) * 0.6);
+  cursor: pointer;
+  font-size: 14px;
+}
+.palette li small {
+  color: var(--ui-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette li[aria-selected='true'] {
+  background: color-mix(in srgb, var(--ui-ac) 20%, transparent);
+}
+.palette li.empty {
+  opacity: 0.6;
+  cursor: default;
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+.fps {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 95;
+  font: 12px/1 'IBM Plex Mono', monospace;
+  color: #7dff9b;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 6px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

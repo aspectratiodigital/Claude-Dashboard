@@ -1,0 +1,86 @@
+{
+  "name": "claude-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Aspect Ratio Digital Blueprint: your Claude projects and sites as a 3D city, as a desktop app.",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "app": "concurrently -k -n vite,electron -c cyan,magenta \"vite --strictPort\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build": "npm run typecheck && vite build && vite build -c electron/vite.server.config.ts && node electron/build-info.mjs",
+    "app:prod": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --win",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json",
+    "start": "vite build && vite preview --open"
+  },
+  "devDependencies": {
+    "@fontsource/archivo": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@react-three/postprocessing": "^3.2.1",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
+    "electron": "^44.9.2",
+    "electron-builder": "^26.17.0",
+    "maath": "^0.10.8",
+    "playwright-core": "^1.64.1",
+    "postprocessing": "^6.39.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.186.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "wait-on": "^9.5.1",
+    "zustand": "^5.0.15"
+  },
+  "build": {
+    "appId": "digital.aspectratio.blueprint",
+    "productName": "ARD Blueprint",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "electron/*.cjs",
+      "build/icon.png",
+      "jarvis.config.json",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ARD Blueprint"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png"
+    }
+  }
+}
