@@ -3,6 +3,7 @@ import { useData } from '../data/store'
 import { useApp, type Quality, type Theme } from '../store'
 import { detectTier, resolveTier, TIERS } from './quality'
 import { Icon } from './icons'
+import { syncNow } from './claude'
 
 // Settings: connect GitHub, per-project URLs and ports, rendering quality.
 // Secrets go to the local API, which keeps them in .jarvis/settings.json on
@@ -15,6 +16,9 @@ interface Remote {
   hasToken: boolean
   psi: boolean
   projects: Record<string, { name?: string; url?: string; previewUrl?: string; localPort?: number; folder?: string; hidden?: boolean }>
+  syncDir: string
+  syncing: boolean
+  oneDrive: string | null
 }
 
 const PERMS = ['contents', 'metadata', 'pull_requests', 'issues', 'actions', 'deployments', 'statuses'].map((p) => `${p}=read`).join('&')
@@ -47,6 +51,7 @@ export function Settings() {
   const [owner, setOwner] = useState('')
   const [psi, setPsi] = useState('')
   const [rows, setRows] = useState<Remote['projects']>({})
+  const [sync, setSync] = useState('')
   const [saved, setSaved] = useState('')
 
   useEffect(() => {
@@ -57,9 +62,16 @@ export function Settings() {
         setRemote(r)
         setOwner(r.owner)
         setRows(r.projects ?? {})
+        setSync(r.syncDir ?? '')
       })
       .catch(() => {})
   }, [open, api, setup?.github])
+
+  const loadRemote = () =>
+    fetch('./api/settings')
+      .then((r) => r.json())
+      .then((r: Remote) => setRemote(r))
+      .catch(() => {})
 
   useEffect(() => {
     if (!open) return
@@ -85,6 +97,13 @@ export function Settings() {
   const saveProjects = async () => {
     const ok = await save({ projects: rows })
     flash(ok ? 'Project settings saved' : 'Could not reach the local API')
+  }
+  const saveSync = async (dir: string) => {
+    setSync(dir)
+    const ok = await save({ syncDir: dir })
+    await loadRemote()
+    syncNow()
+    flash(!ok ? 'Could not reach the local API' : dir ? 'Sync folder saved' : 'Sync turned off')
   }
   const row = (name: string) => rows[name] ?? {}
   const setRow = (name: string, patch: Remote['projects'][string]) => setRows((r) => ({ ...r, [name]: { ...r[name], ...patch } }))
@@ -195,6 +214,36 @@ export function Settings() {
                 <button className="settings-btn ghost" onClick={refresh}>
                   <Icon.refresh size={14} /> Refresh now
                 </button>
+              </div>
+            </section>
+          )}
+
+          {api && remote && (
+            <section>
+              <h3>
+                <Icon.refresh size={16} /> Sync between computers
+              </h3>
+              <p className="settings-note">
+                Point both computers at the same folder in OneDrive and they share your Claude threads, theme, model and site links. Your GitHub token and project folders stay on each computer. It uses well under a megabyte.
+              </p>
+              <p className="settings-status" data-ok={remote.syncing}>
+                {remote.syncing ? `Syncing through ${remote.syncDir}` : remote.syncDir ? `Can't reach ${remote.syncDir}. Is OneDrive signed in?` : 'Off: chats and settings stay on this computer.'}
+              </p>
+              <div className="settings-row">
+                <input value={sync} onChange={(e) => setSync(e.target.value)} placeholder={remote.oneDrive ?? 'C:\\Users\\you\\OneDrive\\ARD Blueprint'} aria-label="Sync folder" />
+                {remote.oneDrive && sync !== remote.oneDrive && (
+                  <button className="settings-btn ghost" onClick={() => saveSync(remote.oneDrive!)}>
+                    Use OneDrive
+                  </button>
+                )}
+                <button className="settings-btn" onClick={() => saveSync(sync.trim())} disabled={sync.trim() === remote.syncDir}>
+                  Save
+                </button>
+                {remote.syncDir && (
+                  <button className="settings-btn ghost" onClick={() => saveSync('')}>
+                    Turn off
+                  </button>
+                )}
               </div>
             </section>
           )}

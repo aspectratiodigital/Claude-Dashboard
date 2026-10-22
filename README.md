@@ -140,6 +140,12 @@ Claude can read files and look at git history freely. Before it edits a file or 
 
 Conversations are kept between launches (in the app's data folder, newest 300), and each one picks up its Claude Code session again, so Claude remembers what you discussed. Delete a thread with the ✕ next to it in fullscreen.
 
+### Laptop and PC sharing the same chats
+
+In **Settings → Sync between computers**, click **Use OneDrive** on each computer (or type any folder both computers can see). From then on they share Claude threads, the theme, model and effort, and site links, checking for changes every 15 seconds. Your GitHub token and each project's folder stay on their own computer. Each thread is its own small file in that folder, so it uses well under a megabyte.
+
+When you carry on a thread that was last used on the other computer, Claude Code there can't see that session, so the app hands Claude the earlier conversation as text and it picks up from there.
+
 To set it up once, in PowerShell:
 
 ```powershell

@@ -1,13 +1,15 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import type { Change, Health, Note, NoteKind, Page, Project, Quality, Snapshot, Status, Thread } from '../src/data/types.ts'
-import { githubAuth, loadConfig, loadSettings, psiKey, saveSettings, type Config } from './config.ts'
+import { githubAuth, loadConfig, loadSettings, projectSettings, psiKey, saveSettings, type Config } from './config.ts'
 import { GitHub, listRepos, loadChange, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
 import { scanLocalSessions, type LocalSession } from './claude.ts'
 import { ask, findClaude, runClaude, stopAll } from './assistant.ts'
 import { changePrompt } from '../src/data/describe.ts'
+import { deleteConversation, host, listConversations, loadShared, oneDriveSuggestion, saveConversation, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
@@ -19,10 +21,6 @@ import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyNam
 const STATE_FILE = path.join(DATA_DIR, 'state.json')
 const NOTES_FILE = path.join(DATA_DIR, 'notes.json')
 const CHANGES_FILE = path.join(DATA_DIR, 'changes.json')
-const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json')
-/** Claude conversations from the dashboard, kept between launches (newest 300) */
-let conversations: Record<string, { id: string; updated: number }> | null = null
-const loadConversations = () => (conversations ??= readJson<Record<string, { id: string; updated: number }>>(CONVERSATIONS_FILE, {}))
 const MIN = 60_000
 
 interface Persisted {
@@ -372,7 +370,7 @@ class Engine {
   folderFor(p: Project): string | null {
     const repoName = p.repo.split('/').pop() ?? p.name
     const o = this.cfg.projects[repoName] ?? this.cfg.projects[slug(repoName)]
-    if (o?.folder) return o.folder
+    if (o?.folder && fs.existsSync(o.folder)) return o.folder
     const key = p.repo.toLowerCase()
     const name = slug(repoName)
     const hit = this.sessions.filter((s) => (s.repo ? s.repo === key : slug(s.folder) === name)).sort((a, b) => b.updated.localeCompare(a.updated))[0]
@@ -587,11 +585,11 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
 
     case 'GET /api/claude': {
       const exe = await findClaude(loadSettings().claudePath)
-      return json(res, 200, { available: !!exe, path: exe })
+      return json(res, 200, { available: !!exe, path: exe, host: host() })
     }
 
     case 'POST /api/claude': {
-      const body = await readBody(req)
+      const body = await readBody(req, 400_000)
       const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 8000) : ''
       if (!prompt) return json(res, 400, { error: 'empty prompt' })
       const exe = await findClaude(loadSettings().claudePath)
@@ -608,6 +606,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
           allow: Array.isArray(body.allow) ? (body.allow as unknown[]).filter((x): x is string => typeof x === 'string') : undefined,
           model: typeof body.model === 'string' ? body.model : undefined,
           effort: typeof body.effort === 'string' ? body.effort : undefined,
+          history: typeof body.history === 'string' ? body.history.slice(-60_000) : undefined,
         },
         res,
       )
@@ -619,7 +618,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
 
     case 'GET /api/settings': {
       const s = loadSettings()
-      return json(res, 200, { owner: engine.cfg.owner, github: engine.auth, login: engine.login, hasToken: !!s.githubToken, psi: !!psiKey(), projects: s.projects ?? {} })
+      return json(res, 200, { owner: engine.cfg.owner, github: engine.auth, login: engine.login, hasToken: !!s.githubToken, psi: !!psiKey(), projects: projectSettings(s), syncDir: s.syncDir ?? '', syncing: !!syncDir(), oneDrive: oneDriveSuggestion() })
     }
 
     case 'POST /api/settings': {
@@ -629,7 +628,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       if (typeof body.psiKey === 'string') patch.psiKey = body.psiKey.trim()
       if (typeof body.owner === 'string') patch.owner = body.owner.trim()
       if (body.projects && typeof body.projects === 'object') patch.projects = body.projects as never
+      if (typeof body.syncDir === 'string') patch.syncDir = body.syncDir.trim()
       saveSettings(patch)
+      if (patch.syncDir) seedSyncFolder()
+      if (patch.projects) saveSharedProjects(patch.projects)
       setTimeout(() => engine.tick(true).catch(() => {}), 50)
       return json(res, 200, { ok: true })
     }
@@ -643,21 +645,22 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       return json(res, 200, { ok: true })
     }
 
-    case 'GET /api/conversations':
-      return json(res, 200, Object.values(loadConversations()))
+    case 'GET /api/sync':
+      return json(res, 200, { conversations: listConversations(), prefs: loadShared().prefs ?? null, host: host(), syncing: !!syncDir() })
 
     case 'POST /api/conversation': {
       const body = await readBody(req, 4_000_000)
-      const c = body.conversation as { id?: unknown; updated?: unknown } | undefined
+      const c = body.conversation as StoredConversation | undefined
       if (!c || typeof c.id !== 'string' || !/^[\w-]{1,64}$/.test(c.id)) return json(res, 400, { error: 'bad conversation' })
-      const all = loadConversations()
-      if (body.delete === true) delete all[c.id]
-      else all[c.id] = { ...(c as { id: string; updated: number }), updated: Number(c.updated) || Date.now() }
-      const keep = Object.values(all)
-        .sort((a, b) => b.updated - a.updated)
-        .slice(0, 300)
-      conversations = Object.fromEntries(keep.map((x) => [x.id, x]))
-      writeJson(CONVERSATIONS_FILE, conversations, 300)
+      if (body.delete === true) deleteConversation(c.id)
+      else saveConversation({ ...c, updated: Number(c.updated) || Date.now() })
+      return json(res, 200, { ok: true })
+    }
+
+    case 'POST /api/prefs': {
+      const body = await readBody(req)
+      const pick = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
+      savePrefs({ theme: pick('theme'), model: pick('model'), effort: pick('effort'), at: Number(body.at) || Date.now() })
       return json(res, 200, { ok: true })
     }
 
