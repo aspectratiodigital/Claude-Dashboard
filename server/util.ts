@@ -27,18 +27,22 @@ export function writeJson(file: string, data: unknown, delay = 400) {
   clearTimeout(pending.get(file))
   pending.set(
     file,
-    setTimeout(() => {
-      pending.delete(file)
-      try {
-        fs.mkdirSync(path.dirname(file), { recursive: true })
-        const tmp = `${file}.tmp`
-        fs.writeFileSync(tmp, JSON.stringify(data))
-        fs.renameSync(tmp, file)
-      } catch (e) {
-        log('could not write', file, (e as Error).message)
-      }
-    }, delay),
+    setTimeout(() => writeJsonNow(file, data), delay),
   )
+}
+
+/** Write straight away, so the next read sees it. */
+export function writeJsonNow(file: string, data: unknown) {
+  clearTimeout(pending.get(file))
+  pending.delete(file)
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const tmp = `${file}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(data))
+    fs.renameSync(tmp, file)
+  } catch (e) {
+    log('could not write', file, (e as Error).message)
+  }
 }
 
 export function log(...args: unknown[]) {

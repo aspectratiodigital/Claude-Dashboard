@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getProject, useData } from '../data/store'
 import { STATUS_LABEL } from '../data/derive'
+import { useApp, type Theme } from '../store'
 
 // Claude inside the dashboard. With the local API running and Claude Code
 // installed, each message runs your own Claude Code in the project's folder
@@ -8,9 +9,11 @@ import { STATUS_LABEL } from '../data/derive'
 // commands come back as "asks" with Allow buttons. Without Claude Code (or in
 // demo mode) it falls back to short canned answers from the dashboard data.
 //
-// Conversations ("threads") live in one store for as long as the app is open,
-// so the notes panel, a building's Claude panel and the fullscreen workspace
-// all see the same history, and several threads can run at once.
+// Conversations ("threads") live in one store, so the notes panel, a
+// building's Claude panel and the fullscreen workspace all see the same
+// history, and several threads can run at once. The local API keeps them on
+// disk, and each one resumes its Claude Code session, so they carry on after
+// the app is closed and reopened.
 
 export interface Ask {
   rule: string
@@ -39,6 +42,8 @@ export interface Conversation {
   speaking: boolean
   /** Claude Code session to resume */
   session?: string
+  /** the computer that session lives on; elsewhere the conversation is handed over as text */
+  sessionHost?: string
   allowed: string[]
   created: number
   updated: number
@@ -82,6 +87,8 @@ interface ClaudeState {
   /** start a new conversation for a project and make it current */
   start: (projectId: string | null) => string
   pick: (convId: string) => void
+  /** forget a conversation (here and on disk) */
+  remove: (convId: string) => void
   send: (convId: string, text: string) => void
   answer: (convId: string, msgId: number, ok: boolean) => void
   stop: (convId: string) => void
@@ -152,18 +159,28 @@ function compose(prompt: string, siteId: string | null): string {
   return 'Ask me for a status check, what is failing, or pick a project to talk about it.'
 }
 
+/** this computer's name, from the local API */
+let localHost = ''
+
 let linkChecked = false
 function checkLink() {
   if (linkChecked) return
   linkChecked = true
   fetch('./api/claude')
     .then((r) => (r.ok ? r.json() : Promise.reject()))
-    .then((r: { available: boolean }) => useClaude.setState({ link: r.available ? 'live' : 'missing' }))
+    .then((r: { available: boolean; host?: string }) => {
+      localHost = r.host ?? ''
+      useClaude.setState({ link: r.available ? 'live' : 'missing' })
+    })
     .catch(() => useClaude.setState({ link: 'offline' }))
 }
 // the link depends on the local API, which the data store finds first
 useData.subscribe((s, prev) => {
-  if (s.api && !prev.api) checkLink()
+  if (s.api && !prev.api) {
+    checkLink()
+    pull(true)
+    window.setInterval(() => pull(false), 15_000)
+  }
   if (s.mode === 'demo' && !s.api) useClaude.setState({ link: 'offline' })
 })
 
@@ -198,11 +215,21 @@ export const useClaude = create<ClaudeState>((set, get) => {
     const ctl = new AbortController()
     aborts.set(convId, ctl)
     const allowed = [...c.allowed, ...(allow ?? [])]
+    // a session started on the other computer can't be resumed here: hand Claude the conversation instead
+    const here = !c.session || !c.sessionHost || !localHost || c.sessionHost === localHost
     try {
       const res = await fetch('./api/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, projectId: c.projectId, resume: c.session, allow: allowed, model: get().model || undefined, effort: get().effort || undefined }),
+        body: JSON.stringify({
+          prompt,
+          projectId: c.projectId,
+          resume: here ? c.session : undefined,
+          history: here ? undefined : transcript(c),
+          allow: allowed,
+          model: get().model || undefined,
+          effort: get().effort || undefined,
+        }),
         signal: ctl.signal,
       })
       if (!res.ok || !res.body) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`)
@@ -223,7 +250,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
           else if (e.type === 'tool') patchMsg(convId, replyId, () => ({ doing: e.text }))
           else if (e.type === 'error') patchMsg(convId, replyId, (m) => ({ text: m.text ? `${m.text}\n\n${e.text}` : e.text, error: true }))
           else if (e.type === 'done') {
-            if (e.session) patchConv(convId, () => ({ session: e.session, allowed }))
+            if (e.session) patchConv(convId, () => ({ session: e.session, sessionHost: localHost || undefined, allowed }))
             patchMsg(convId, replyId, (m) => ({ streaming: false, doing: undefined, asks: e.asks?.length ? e.asks : undefined, text: m.text || (e.asks?.length ? 'I need your OK for this:' : 'Done.') }))
           }
         }
@@ -248,10 +275,12 @@ export const useClaude = create<ClaudeState>((set, get) => {
     setModel: (model) => {
       save('ard.claude.model', model)
       set({ model })
+      pushPrefs()
     },
     setEffort: (effort) => {
       save('ard.claude.effort', effort)
       set({ effort })
+      pushPrefs()
     },
     openFull: (projectId) => {
       const key = projectId === undefined ? '' : keyOf(projectId)
@@ -277,11 +306,23 @@ export const useClaude = create<ClaudeState>((set, get) => {
       return get().start(projectId)
     },
     start: (projectId) => {
-      const id = `c${nextConv++}`
+      const id = `c${Date.now().toString(36)}${(nextConv++).toString(36)}`
       const now = Date.now()
       const c: Conversation = { id, projectId, title: 'New thread', messages: [greeting(projectId)], speaking: false, allowed: [], created: now, updated: now }
       set((s) => ({ convs: [...s.convs, c], current: { ...s.current, [keyOf(projectId)]: id } }))
       return id
+    },
+    remove: (convId) => {
+      const c = conv(convId)
+      if (!c) return
+      get().stop(convId)
+      const key = keyOf(c.projectId)
+      set((s) => {
+        const current = { ...s.current }
+        if (current[key] === convId) delete current[key]
+        return { convs: s.convs.filter((x) => x.id !== convId), current }
+      })
+      persist(c, true)
     },
     pick: (convId) => {
       const c = conv(convId)
@@ -334,3 +375,146 @@ export const convsFor = (convs: Conversation[], projectId: string | null) => con
 
 /** Conversations someone actually wrote in (the greeting alone doesn't count). */
 export const hasTalk = (c: Conversation) => c.messages.some((m) => m.role === 'user')
+
+// --- Keeping conversations between launches ---------------------------------------------------
+
+const saveTimers = new Map<string, number>()
+const saved = new Map<string, number>()
+
+/** Save one conversation through the local API (or delete it). */
+function persist(c: Conversation, remove = false) {
+  if (!useData.getState().api) return
+  window.clearTimeout(saveTimers.get(c.id))
+  saveTimers.delete(c.id)
+  const conversation = { ...c, speaking: false, messages: c.messages.map((m) => ({ ...m, streaming: undefined, doing: undefined })) }
+  fetch('./api/conversation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation, delete: remove || undefined }) }).catch(() => {})
+}
+
+/** The conversation so far as plain text, for Claude on a computer that doesn't have its session. */
+function transcript(c: Conversation) {
+  const msgs = c.messages.slice(0, -2) // leave out the new message and the reply being written
+  const first = msgs.findIndex((m) => m.role === 'user')
+  return msgs
+    .slice(first < 0 ? msgs.length : first)
+    .filter((m) => m.text.trim())
+    .map((m) => `${m.role === 'user' ? 'Dylan' : 'Claude'}: ${m.text.trim()}`)
+    .join('\n\n')
+}
+
+const tidy = (c: Conversation): Conversation => ({
+  ...c,
+  speaking: false,
+  messages: c.messages.map((m) => (m.role === 'claude' && !m.text ? { ...m, text: '(Stopped when the app closed.)' } : { ...m, streaming: undefined, doing: undefined })),
+})
+
+/** ids the local API has told us about, so a thread deleted on the other computer can be dropped here */
+const known = new Set<string>()
+let pulling = false
+
+/**
+ * Bring in saved conversations and shared preferences: on launch, then every
+ * 15 seconds, which is how threads from your other computer arrive.
+ */
+/** Check the sync folder now (Settings calls this after you pick one). */
+export const syncNow = () => pull(true)
+
+function pull(first: boolean) {
+  if (pulling) return
+  pulling = true
+  fetch('./api/sync')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((r: { conversations: Conversation[]; prefs: Prefs | null; host: string; syncing: boolean } | null) => {
+      if (!r) return
+      if (r.host) localHost ||= r.host
+      if (r.prefs) applyPrefs(r.prefs)
+      else if (r.syncing) pushPrefs() // a new sync folder starts with this computer's choices
+      const list = (Array.isArray(r.conversations) ? r.conversations : []).filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages))
+      const s = useClaude.getState()
+      const byId = new Map(s.convs.map((c) => [c.id, c]))
+      const remote = new Set(list.map((c) => c.id))
+      let convs = s.convs
+      const current = { ...s.current }
+      let changed = false
+      for (const c of list) {
+        for (const m of c.messages) nextId = Math.max(nextId, (Number(m.id) || 0) + 1)
+        known.add(c.id)
+        const mine = byId.get(c.id)
+        if (mine && (mine.speaking || mine.updated >= c.updated)) continue
+        saved.set(c.id, c.updated)
+        convs = mine ? convs.map((x) => (x.id === c.id ? tidy(c) : x)) : [...convs, tidy(c)]
+        changed = true
+      }
+      // deleted on the other computer
+      const gone = convs.filter((c) => known.has(c.id) && !remote.has(c.id) && !c.speaking).map((c) => c.id)
+      if (gone.length) {
+        convs = convs.filter((c) => !gone.includes(c.id))
+        for (const id of gone) known.delete(id)
+        for (const [k, v] of Object.entries(current)) if (gone.includes(v)) delete current[k]
+        changed = true
+      }
+      if (first) {
+        // a project that only has an empty, just-opened thread switches to its latest saved one
+        const empty = new Set(convs.filter((c) => !hasTalk(c)).map((c) => c.id))
+        const drop = new Set<string>()
+        for (const c of [...convs].filter((x) => remote.has(x.id)).sort((a, b) => a.updated - b.updated)) {
+          const key = keyOf(c.projectId)
+          if (!current[key] || empty.has(current[key])) {
+            if (current[key]) drop.add(current[key])
+            current[key] = c.id
+            changed = true
+          }
+        }
+        convs = convs.filter((c) => !drop.has(c.id))
+      }
+      if (changed) useClaude.setState({ convs, current })
+    })
+    .catch(() => {})
+    .finally(() => (pulling = false))
+}
+
+// --- Shared preferences: theme, model and effort follow you between computers -------------------
+
+interface Prefs {
+  theme?: string
+  model?: string
+  effort?: string
+  at: number
+}
+
+let prefsAt = Number(load('ard.prefs.at')) || 0
+let applying = false
+
+function pushPrefs() {
+  if (applying || !useData.getState().api) return
+  prefsAt = Date.now()
+  save('ard.prefs.at', String(prefsAt))
+  const { model, effort } = useClaude.getState()
+  fetch('./api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: useApp.getState().theme, model, effort, at: prefsAt }) }).catch(() => {})
+}
+
+function applyPrefs(p: Prefs) {
+  if (!p.at || p.at <= prefsAt) return
+  applying = true
+  prefsAt = p.at
+  save('ard.prefs.at', String(prefsAt))
+  if (p.theme && ['blueprint', 'light', 'dark'].includes(p.theme)) useApp.getState().setTheme(p.theme as Theme)
+  if (typeof p.model === 'string' && MODELS.some((m) => m.id === p.model)) useClaude.getState().setModel(p.model)
+  if (typeof p.effort === 'string' && EFFORTS.some((m) => m.id === p.effort)) useClaude.getState().setEffort(p.effort)
+  applying = false
+}
+
+useApp.subscribe((s, prev) => {
+  if (s.theme !== prev.theme) pushPrefs()
+})
+
+// save a conversation a moment after it changes, once someone has written in it
+useClaude.subscribe((s, prev) => {
+  if (s.convs === prev.convs) return
+  for (const c of s.convs) {
+    if (!hasTalk(c) || saved.get(c.id) === c.updated) continue
+    saved.set(c.id, c.updated)
+    window.clearTimeout(saveTimers.get(c.id))
+    // while Claude is answering, save every few seconds rather than on every word
+    saveTimers.set(c.id, window.setTimeout(() => persist(useClaude.getState().convs.find((x) => x.id === c.id) ?? c), c.speaking ? 3000 : 600))
+  }
+})

@@ -138,7 +138,13 @@ Claude can read files and look at git history freely. Before it edits a file or 
 - **In a building:** select a building and click **Open Claude**. Its details panel turns into Claude for that project, with every conversation you've had about it since the app opened. **Details** (or `Esc`) goes back.
 - **Fullscreen:** the expand button on the notes panel, or **Open fullscreen** in a building's Claude panel, opens a full Claude workspace: your projects down the left, that project's threads in the middle, and the conversation on the right. Start as many threads as you like with **+ New thread**; each one runs on its own, so Claude can work on several things at once. `Esc` closes it.
 
-Conversations last until you close the app.
+Conversations are kept between launches (in the app's data folder, newest 300), and each one picks up its Claude Code session again, so Claude remembers what you discussed. Delete a thread with the ✕ next to it in fullscreen.
+
+### Laptop and PC sharing the same chats
+
+In **Settings → Sync between computers**, click **Use OneDrive** on each computer (or type any folder both computers can see). From then on they share Claude threads, the theme, model and effort, and site links, checking for changes every 15 seconds. Your GitHub token and each project's folder stay on their own computer. Each thread is its own small file in that folder, so it uses well under a megabyte.
+
+When you carry on a thread that was last used on the other computer, Claude Code there can't see that session, so the app hands Claude the earlier conversation as text and it picks up from there.
 
 To set it up once, in PowerShell:
 

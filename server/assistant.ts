@@ -145,6 +145,8 @@ export interface RunOptions {
   /** a model alias; unset uses whatever Claude Code is set to */
   model?: string
   effort?: string
+  /** the conversation so far, when its Claude Code session lives on another computer */
+  history?: string
 }
 
 const running = new Set<ChildProcess>()
@@ -168,7 +170,8 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   if (o.resume && UUID.test(o.resume)) args.push('--resume', o.resume)
   if (o.model && (MODELS as readonly string[]).includes(o.model)) args.push('--model', o.model)
   if (o.effort && (EFFORTS as readonly string[]).includes(o.effort)) args.push('--effort', o.effort)
-  const prompt = o.resume ? o.prompt : `${contextFor(o.projects, o.site, o.folder)}\n\nDylan asks: ${o.prompt}`
+  const earlier = !o.resume && o.history ? `\n\nEarlier in this conversation (on Dylan's other computer, so you can't see it in your own history):\n${o.history}` : ''
+  const prompt = o.resume ? o.prompt : `${contextFor(o.projects, o.site, o.folder)}${earlier}\n\nDylan asks: ${o.prompt}`
 
   const shim = /\.(cmd|bat)$/i.test(o.exe)
   let child: ChildProcess

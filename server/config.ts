@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
-import { DATA_DIR, ROOT, readJson, writeJson } from './util.ts'
+import { DATA_DIR, ROOT, readJson, writeJsonNow } from './util.ts'
 
 // jarvis.config.json (committed) holds safe defaults. Anything personal, like
 // your GitHub token or per-project overrides, is saved to .jarvis/settings.json
@@ -36,6 +36,8 @@ export interface Settings {
   /** full path to the claude command, if it isn't on PATH */
   claudePath?: string
   projects?: Record<string, ProjectOverride>
+  /** a folder (e.g. in OneDrive) shared with your other computers: chats, theme and site links sync through it */
+  syncDir?: string
 }
 
 const DEFAULTS: Config = {
@@ -55,13 +57,25 @@ export function loadConfig(): Config {
   const file = readJson<Partial<Config>>(path.join(ROOT, 'jarvis.config.json'), {})
   const settings = loadSettings()
   const projects: Record<string, ProjectOverride> = { ...(file.projects ?? {}) }
-  for (const [k, v] of Object.entries(settings.projects ?? {})) projects[k] = { ...projects[k], ...v }
+  for (const [k, v] of Object.entries(projectSettings(settings))) projects[k] = { ...projects[k], ...v }
   const include = process.env.JARVIS_INCLUDE ? process.env.JARVIS_INCLUDE.split(',').map((s) => s.trim()) : (file.include ?? [])
   return { ...DEFAULTS, ...file, include, owner: settings.owner || file.owner || DEFAULTS.owner, projects }
 }
 
 export function loadSettings(): Settings {
   return readJson<Settings>(SETTINGS_FILE, {})
+}
+
+/**
+ * This computer's project overrides with the ones shared through the sync
+ * folder on top: the last site links saved on any computer win, but the
+ * project folder always comes from this computer, since paths differ.
+ */
+export function projectSettings(settings = loadSettings()): Record<string, ProjectOverride> {
+  const out: Record<string, ProjectOverride> = { ...(settings.projects ?? {}) }
+  const shared = settings.syncDir ? readJson<{ projects?: Record<string, ProjectOverride> }>(path.join(settings.syncDir, 'shared.json'), {}).projects : undefined
+  for (const [k, { folder: _, ...v }] of Object.entries(shared ?? {})) out[k] = { ...out[k], ...v }
+  return out
 }
 
 export function saveSettings(patch: Settings) {
@@ -72,9 +86,9 @@ export function saveSettings(patch: Settings) {
     for (const [k, v] of Object.entries(patch.projects)) next.projects[k] = { ...next.projects[k], ...v }
   }
   // empty strings clear a value
-  for (const k of ['githubToken', 'psiKey', 'owner'] as const) if (next[k] === '') delete next[k]
+  for (const k of ['githubToken', 'psiKey', 'owner', 'syncDir'] as const) if (next[k] === '') delete next[k]
   fs.mkdirSync(DATA_DIR, { recursive: true })
-  writeJson(SETTINGS_FILE, next, 0)
+  writeJsonNow(SETTINGS_FILE, next)
   return next
 }
 

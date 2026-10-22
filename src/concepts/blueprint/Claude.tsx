@@ -175,6 +175,7 @@ function Threads({ projectId, compact }: { projectId: string | null; compact?: b
   const current = useClaude((s) => s.current[projectId ?? ''])
   const pick = useClaude((s) => s.pick)
   const start = useClaude((s) => s.start)
+  const remove = useClaude((s) => s.remove)
   const shown = convs.filter((c) => hasTalk(c) || c.id === current)
   return (
     <nav className={compact ? 'cl-tabs' : 'cl-threads'} aria-label="Threads">
@@ -189,6 +190,11 @@ function Threads({ projectId, compact }: { projectId: string | null; compact?: b
               <b>{c.title}</b>
               <span>{c.speaking ? 'Working…' : `${c.messages.filter((m) => m.role === 'user').length} message${c.messages.filter((m) => m.role === 'user').length === 1 ? '' : 's'} · ${relTime(new Date(c.updated).toISOString())}`}</span>
             </button>
+            {!compact && hasTalk(c) && (
+              <button className="cl-del" onClick={() => window.confirm(`Delete “${c.title}”?`) && remove(c.id)} title="Delete this thread" aria-label={`Delete ${c.title}`}>
+                ✕
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -230,6 +236,10 @@ export function ClaudeFull() {
   const conv = useConv(convId)
   const projects = useData((s) => s.projects)
   const project = useProject(fullProject || null)
+  const ensure = useClaude((s) => s.ensure)
+  useEffect(() => {
+    if (full && !convId) ensure(fullProject || null)
+  }, [full, convId, fullProject, ensure])
   if (!full) return null
   const counts = (id: string | null) => {
     const mine = convsFor(convs, id)
