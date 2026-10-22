@@ -29,6 +29,28 @@ Windows may show "Windows protected your PC" the first time, because the install
 
 The app keeps its settings, GitHub token and notifications in `%APPDATA%\ARD Blueprint\data`, separate from the `.jarvis` folder the browser version uses, so connect GitHub once inside the app.
 
+### On another Windows PC
+
+Each computer builds its own copy. On a fresh PC, in PowerShell:
+
+```powershell
+winget install OpenJS.NodeJS.LTS Git.Git
+```
+
+Close PowerShell and open a new one so it finds them, then:
+
+```powershell
+cd D:\
+git clone https://github.com/aspectratiodigital/Claude-Dashboard.git
+cd Claude-Dashboard
+git checkout claude/project-thread-35jdu8
+npm.cmd ci
+npm.cmd run dist
+start "release\ARD Blueprint Setup 0.1.0.exe"
+```
+
+The repo is private, so the first `git clone` opens a GitHub sign-in window. Once the app opens, connect GitHub in Settings, and set up the Claude bar (below) on that PC too. It then updates itself from that folder like the first one.
+
 ## Run it in the browser
 
 For working on the dashboard itself, from `D:\Claude-Dashboard`:
@@ -96,6 +118,8 @@ One building per site. Its footprint grows with this week's commits and it has o
 | A ring spreading from the building | Something just happened |
 
 Click a building to select it. Click it again (or press `Enter`) to **open it up**: it separates into a cross-section you can click through, with the roof for site speed, the sign for SEO, a floor for each page, the foundation for build quality, and huts for Claude's threads.
+
+The huts are stacked newest push first, so the top one (labelled **Latest push**) is the most recent work on that site. Click a hut to see what that push changed in plain English: which pages, components, styles and files it touched and how many lines, the pull request's description, its commits newest first, and the full file list with a link to GitHub.
 
 ![A building opened up](docs/screenshots/blueprint-dissect.jpg)
 
