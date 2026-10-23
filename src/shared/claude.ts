@@ -66,6 +66,36 @@ export interface Conversation {
   allowed: string[]
   created: number
   updated: number
+  /** where Claude left it, from the status line at the end of its last reply (or you resolving it) */
+  status?: 'waiting' | 'idle' | 'resolved'
+  /** named by Claude, so the first message's text no longer stands in for a title */
+  titled?: boolean
+}
+
+export type ThreadState = 'working' | 'waiting' | 'idle' | 'resolved'
+
+export const THREAD_STATES: { id: ThreadState; label: string }[] = [
+  { id: 'working', label: 'Working' },
+  { id: 'waiting', label: 'Waiting on you' },
+  { id: 'idle', label: 'Idle' },
+  { id: 'resolved', label: 'Resolved' },
+]
+
+/** Where a thread stands: Claude is answering, needs you (a question, an Allow, an error), is done for now, or the work is finished. */
+export function threadState(c: Conversation): ThreadState {
+  if (c.speaking) return 'working'
+  const last = [...c.messages].reverse().find((m) => m.role === 'claude')
+  if (last?.asks?.length && !last.answered) return 'waiting'
+  if (last?.error) return 'waiting'
+  return c.status ?? 'idle'
+}
+
+// The status line Claude ends each reply with (server/assistant.ts asks for it). It is read, then hidden.
+const STATUS_LINE = /\s*\[\[\s*status:\s*(waiting|idle|resolved)\s*\]\]\s*$/i
+/** A reply without its status line (and, while it's still arriving, without a half-written one). */
+export const cleanReply = (text: string, streaming = false) => {
+  const t = text.replace(STATUS_LINE, '')
+  return streaming ? t.replace(/\s*\[\[[^\]\n]{0,24}\]?$/, '') : t
 }
 
 export type ClaudeLink = 'checking' | 'live' | 'missing' | 'offline'
@@ -113,6 +143,8 @@ interface ClaudeState {
   retry: (convId: string) => void
   answer: (convId: string, msgId: number, ok: boolean) => void
   stop: (convId: string) => void
+  /** mark a thread finished, or open it again */
+  resolve: (convId: string, done: boolean) => void
 }
 
 function load(key: string) {
@@ -274,7 +306,11 @@ export const useClaude = create<ClaudeState>((set, get) => {
           else if (e.type === 'error') patchMsg(convId, replyId, (m) => ({ text: m.text ? `${m.text}\n\n${e.text}` : e.text, error: true }))
           else if (e.type === 'done') {
             if (e.session) patchConv(convId, () => ({ session: e.session, sessionHost: localHost || undefined, allowed }))
-            patchMsg(convId, replyId, (m) => ({ streaming: false, doing: undefined, asks: e.asks?.length ? e.asks : undefined, text: m.text || (e.asks?.length ? 'I need your OK for this:' : 'Done.') }))
+            const said = conv(convId)?.messages.find((m) => m.id === replyId)?.text ?? ''
+            const status = (STATUS_LINE.exec(said)?.[1]?.toLowerCase() ?? 'idle') as Conversation['status']
+            patchMsg(convId, replyId, (m) => ({ streaming: false, doing: undefined, asks: e.asks?.length ? e.asks : undefined, text: cleanReply(m.text) || (e.asks?.length ? 'I need your OK for this:' : 'Done.') }))
+            patchConv(convId, () => ({ status: e.asks?.length ? 'waiting' : status }))
+            name(convId)
           }
         }
       }
@@ -282,9 +318,23 @@ export const useClaude = create<ClaudeState>((set, get) => {
       if ((err as Error).name !== 'AbortError') patchMsg(convId, replyId, (m) => ({ text: m.text || `I couldn't reach Claude Code: ${(err as Error).message}`, error: true }))
     } finally {
       aborts.delete(convId)
-      patchMsg(convId, replyId, () => ({ streaming: false, doing: undefined }))
+      patchMsg(convId, replyId, (m) => ({ streaming: false, doing: undefined, text: cleanReply(m.text) }))
       patchConv(convId, () => ({ speaking: false }))
     }
+  }
+
+  /** Once a thread has its first reply, Claude names it in a few words. */
+  const name = (convId: string) => {
+    const c = conv(convId)
+    if (!c || c.titled || get().link !== 'live') return
+    const ask = c.messages.find((m) => m.role === 'user')
+    const reply = c.messages.find((m, i) => m.role === 'claude' && i > c.messages.indexOf(ask!) && m.text)
+    if (!ask || !reply) return
+    patchConv(convId, () => ({ titled: true }))
+    fetch('./api/claude/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: ask.text, reply: reply.text }) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { title?: string } | null) => j?.title && patchConv(convId, () => ({ title: j.title! })))
+      .catch(() => {})
   }
 
   return {
@@ -362,6 +412,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
       const live = get().link === 'live'
       patchConv(convId, (x) => ({
         speaking: true,
+        status: x.status === 'resolved' ? 'idle' : x.status,
         title: x.messages.some((m) => m.role === 'user') ? x.title : text.length > 60 ? `${text.slice(0, 57)}…` : text,
         messages: [
           ...x.messages.map((m) => ({ ...m, streaming: false })),
@@ -392,6 +443,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
       patchConv(convId, (x) => ({ speaking: true, messages: [...x.messages, { id: replyId, role: 'claude', text: '', streaming: true, doing: 'Carrying on' }] }))
       run(convId, replyId, 'You have permission now for what you asked. Carry on from where you stopped.', msg.asks.map((a) => a.rule))
     },
+    resolve: (convId, done) => patchConv(convId, () => ({ status: done ? 'resolved' : 'idle' })),
     stop: (convId) => {
       aborts.get(convId)?.abort()
       const t = timers.get(convId)

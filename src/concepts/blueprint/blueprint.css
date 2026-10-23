@@ -2312,3 +2312,169 @@ button.bp-link {
 .cl-extra-row:has(.cl-del-inline) > button:first-child {
   padding-right: 22px;
 }
+
+/* threads sorted by where they stand: Working, Waiting on you, Idle, Resolved */
+.cl-group {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.cl-group-head {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font: 600 10px/1 var(--ui-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--line-2);
+}
+button.cl-group-head {
+  cursor: pointer;
+}
+button.cl-group-head:hover {
+  color: var(--ink);
+}
+.cl-group-head span {
+  padding: 1px 5px;
+  border: 1px solid var(--line-3);
+  border-radius: 8px;
+  font-size: 9.5px;
+  letter-spacing: 0;
+}
+.cl-group[data-state='waiting'] .cl-group-head {
+  color: var(--mark);
+}
+.cl-group[data-state='resolved'] li {
+  opacity: 0.7;
+}
+.cl-state {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--line-3);
+}
+.cl-state[data-state='waiting'] {
+  background: var(--mark);
+}
+.cl-state[data-state='resolved'] {
+  background: var(--go);
+}
+.cl-state[data-state='working'] {
+  display: none;
+}
+
+/* code Claude changed: one line, opened up on click */
+.cl-changed {
+  margin-top: 8px;
+  font-size: 11px;
+}
+.cl-changed > button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px dashed var(--line-3);
+  color: var(--line-2);
+}
+.cl-changed > button:hover {
+  color: var(--ink);
+  border-color: var(--line-2);
+}
+.cl-changed > button b {
+  font-weight: 600;
+  color: var(--ink);
+}
+.cl-changed ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+}
+.cl-changed li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+}
+.cl-changed li b {
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-changed li span {
+  flex: 1;
+  color: var(--line-2);
+}
+.cl-changed li button {
+  all: unset;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--line-2);
+  text-decoration: underline dotted;
+}
+.cl-changed li button:hover {
+  color: var(--mark);
+}
+
+/* replies: room between ideas, like a chat app */
+.cl-md {
+  line-height: 1.55;
+}
+.cl-md p,
+.cl-md ul,
+.cl-md ol,
+.cl-md pre,
+.cl-md table,
+.cl-md blockquote {
+  margin-bottom: 10px;
+}
+.cl-md li {
+  margin: 3px 0;
+}
+.cl-md li > p {
+  margin: 0;
+}
+.cl-md ul {
+  list-style: disc;
+}
+.cl-md li::marker {
+  color: var(--line-2);
+}
+.cl-md h2,
+.cl-md h3,
+.cl-md h4 {
+  margin: 16px 0 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-3);
+  font-size: 1em;
+}
+.cl-md > h2:first-child,
+.cl-md > h3:first-child,
+.cl-md > h4:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.cl-md strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+.cl-md hr {
+  border: 0;
+  border-top: 1px solid var(--line-3);
+  margin: 14px 0;
+}
+.cl-md a {
+  text-underline-offset: 2px;
+}

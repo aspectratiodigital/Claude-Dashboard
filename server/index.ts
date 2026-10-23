@@ -7,7 +7,7 @@ import { githubAuth, loadConfig, loadSettings, projectSettings, psiKey, saveSett
 import { GitHub, listRepos, loadChange, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
 import { scanLocalSessions, type LocalSession } from './claude.ts'
-import { ask, findClaude, runClaude, stopAll } from './assistant.ts'
+import { ask, findClaude, runClaude, stopAll, titleFor } from './assistant.ts'
 import { changePrompt } from '../src/data/describe.ts'
 import { deleteConversation, host, listConversations, loadShared, oneDriveSuggestion, saveConversation, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
 import { blankStore, cleanDomain, loadCatalog, loadProduct, loadStore, type ShopifyCred } from './shopify.ts'
@@ -672,6 +672,15 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
     case 'GET /api/claude': {
       const exe = await findClaude(loadSettings().claudePath)
       return json(res, 200, { available: !!exe, path: exe, host: host() })
+    }
+
+    case 'POST /api/claude/title': {
+      // a short name for a new thread, written by Claude Code's quickest model
+      const body = await readBody(req, 20_000)
+      const exe = await findClaude(loadSettings().claudePath)
+      if (!exe) return json(res, 503, { error: 'Claude Code is not installed on this computer' })
+      const title = await titleFor(exe, String(body.prompt ?? ''), String(body.reply ?? ''))
+      return title ? json(res, 200, { title }) : json(res, 502, { error: 'No title' })
     }
 
     case 'POST /api/claude': {
