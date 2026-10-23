@@ -1,5 +1,6 @@
 import { useEffect, type CSSProperties } from 'react'
 import { FONTS, useApp } from './store'
+import { PALETTES } from './concepts/blueprint/palette'
 import { useData } from './data/store'
 import Blueprint from './concepts/blueprint/Blueprint'
 import { CommandPalette } from './shared/CommandPalette'
@@ -19,6 +20,12 @@ export default function App() {
   const fontId = useApp((s) => s.font)
   const font = FONTS.find((f) => f.id === fontId) ?? FONTS[0]
   useTier()
+
+  // the page's theme colour: the desktop app turns its title bar black or white to match (electron/main.cjs)
+  useEffect(() => {
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', PALETTES[theme].paper)
+    document.documentElement.style.background = PALETTES[theme].paper
+  }, [theme])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

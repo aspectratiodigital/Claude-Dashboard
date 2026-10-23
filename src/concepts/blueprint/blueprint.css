@@ -2023,3 +2023,458 @@ button.bp-link {
 .cl-threads li button[aria-pressed] {
   padding-right: 24px;
 }
+
+/* An app's floors: galleries of skins, card designs and images, and the full-screen viewer */
+.ap-gallery {
+  margin-top: 6px;
+}
+.ap-grid {
+  list-style: none;
+  margin: 6px 0 10px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+}
+.ap-grid[data-phone='true'] {
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+}
+.ap-tile {
+  all: unset;
+  cursor: pointer;
+  box-sizing: border-box;
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  font-size: 11px;
+}
+.ap-pic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid var(--line-3);
+  background: color-mix(in srgb, var(--paper-2) 70%, transparent);
+}
+.ap-tile[data-phone='true'] .ap-pic {
+  aspect-ratio: 390 / 844;
+  border-radius: 8px;
+}
+.ap-pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ap-tile[data-phone='true'] .ap-pic img {
+  object-fit: cover;
+  object-position: top;
+}
+.ap-tile:hover .ap-pic,
+.ap-tile:focus-visible .ap-pic {
+  border-color: var(--mark);
+}
+.ap-tile b {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-tile b i,
+.ap-box h3 i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--line-3);
+}
+.ap-tile small {
+  color: var(--line-2);
+  font-size: 10px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ap-none {
+  padding: 6px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--line-2);
+}
+.ap-crop {
+  display: block;
+  height: 92%;
+  aspect-ratio: 5 / 7;
+  background-repeat: no-repeat;
+}
+.ap-crop[data-big='true'] {
+  height: auto;
+  width: 100%;
+}
+
+.ap-box {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: color-mix(in srgb, var(--paper) 94%, black);
+  color: var(--line);
+  animation: ap-in 0.16s ease-out;
+}
+@keyframes ap-in {
+  from {
+    opacity: 0;
+  }
+}
+.ap-box header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line-3);
+}
+.ap-box header > div {
+  flex: 1;
+  min-width: 0;
+}
+.ap-box header small {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--line-2);
+}
+.ap-box h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 0;
+  font: 600 18px/1.2 var(--ui-display, var(--ui-font));
+  color: var(--ink);
+}
+.ap-box header p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--line-2);
+}
+.ap-box header > span {
+  font-size: 11px;
+  color: var(--line-2);
+}
+.ap-box header button,
+.ap-box header a {
+  all: unset;
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px dashed var(--line-2);
+  color: var(--ink);
+}
+.ap-box header button:hover,
+.ap-box header a:hover {
+  border-color: var(--mark);
+  color: var(--mark);
+}
+.ap-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: 56px 1fr 56px;
+  align-items: center;
+  min-height: 0;
+  padding: 16px 0;
+}
+.ap-pics {
+  grid-column: 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 24px;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.ap-pics figure {
+  margin: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  justify-items: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 0;
+}
+.ap-pics figure[data-crop='true'] {
+  flex: 0 1 auto;
+  height: auto;
+  width: min(30vw, calc((100vh - 170px) * 5 / 7));
+}
+.ap-pics figure img {
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  align-self: center;
+}
+.ap-pics figcaption {
+  font-size: 11px;
+  color: var(--line-2);
+}
+.ap-pics .ap-phone {
+  flex: none;
+  display: block;
+  position: relative;
+  height: 100%;
+  max-height: 844px;
+  aspect-ratio: 390 / 844;
+  border: 1px solid var(--line-3);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--paper-2);
+}
+.ap-phone img,
+.ap-phone iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  object-fit: cover;
+  object-position: top;
+  display: block;
+}
+.ap-phone .ap-none {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.ap-nav {
+  all: unset;
+  cursor: pointer;
+  justify-self: center;
+  font-size: 34px;
+  line-height: 1;
+  padding: 10px;
+  color: var(--line-2);
+}
+.ap-nav[data-side='right'] {
+  grid-column: 3;
+}
+.ap-nav:hover {
+  color: var(--mark);
+}
+
+/* adding a skill */
+.cl-extra-row {
+  position: relative;
+}
+.cl-extra-row .cl-del-inline {
+  position: absolute;
+  top: 5px;
+  right: 2px;
+  width: auto;
+  padding: 0 4px;
+  background: none;
+}
+.cl-addskill {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+.cl-addskill .cl-field input {
+  font: 12px var(--ui-font);
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-3);
+  padding: 6px 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  outline: none;
+}
+.cl-addskill .cl-field input:focus {
+  border-color: var(--mark);
+}
+.ap-over {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.ap-pic img[data-state]:not([data-state='ok']),
+.ap-phone img[data-state]:not([data-state='ok']) {
+  opacity: 0;
+}
+.cl-extra-row:has(.cl-del-inline) > button:first-child {
+  padding-right: 22px;
+}
+
+/* threads sorted by where they stand: Working, Waiting on you, Idle, Resolved */
+.cl-group {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+.cl-group-head {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font: 600 10px/1 var(--ui-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--line-2);
+}
+button.cl-group-head {
+  cursor: pointer;
+}
+button.cl-group-head:hover {
+  color: var(--ink);
+}
+.cl-group-head span {
+  padding: 1px 5px;
+  border: 1px solid var(--line-3);
+  border-radius: 8px;
+  font-size: 9.5px;
+  letter-spacing: 0;
+}
+.cl-group[data-state='waiting'] .cl-group-head {
+  color: var(--mark);
+}
+.cl-group[data-state='resolved'] li {
+  opacity: 0.7;
+}
+.cl-state {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--line-3);
+}
+.cl-state[data-state='waiting'] {
+  background: var(--mark);
+}
+.cl-state[data-state='resolved'] {
+  background: var(--go);
+}
+.cl-state[data-state='working'] {
+  display: none;
+}
+
+/* code Claude changed: one line, opened up on click */
+.cl-changed {
+  margin-top: 8px;
+  font-size: 11px;
+}
+.cl-changed > button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px dashed var(--line-3);
+  color: var(--line-2);
+}
+.cl-changed > button:hover {
+  color: var(--ink);
+  border-color: var(--line-2);
+}
+.cl-changed > button b {
+  font-weight: 600;
+  color: var(--ink);
+}
+.cl-changed ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+}
+.cl-changed li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+}
+.cl-changed li b {
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-changed li span {
+  flex: 1;
+  color: var(--line-2);
+}
+.cl-changed li button {
+  all: unset;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--line-2);
+  text-decoration: underline dotted;
+}
+.cl-changed li button:hover {
+  color: var(--mark);
+}
+
+/* replies: room between ideas, like a chat app */
+.cl-md {
+  line-height: 1.55;
+}
+.cl-md p,
+.cl-md ul,
+.cl-md ol,
+.cl-md pre,
+.cl-md table,
+.cl-md blockquote {
+  margin-bottom: 10px;
+}
+.cl-md li {
+  margin: 3px 0;
+}
+.cl-md li > p {
+  margin: 0;
+}
+.cl-md ul {
+  list-style: disc;
+}
+.cl-md li::marker {
+  color: var(--line-2);
+}
+.cl-md h2,
+.cl-md h3,
+.cl-md h4 {
+  margin: 16px 0 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-3);
+  font-size: 1em;
+}
+.cl-md > h2:first-child,
+.cl-md > h3:first-child,
+.cl-md > h4:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.cl-md strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+.cl-md hr {
+  border: 0;
+  border-top: 1px solid var(--line-3);
+  margin: 14px 0;
+}
+.cl-md a {
+  text-underline-offset: 2px;
+}

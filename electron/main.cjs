@@ -2,7 +2,7 @@
 // In dev it loads the Vite server (VITE_DEV_SERVER_URL). Otherwise it starts the
 // bundled local API and file server (dist-electron/server.mjs) and loads that,
 // so the installed app shows your live projects with nothing else running.
-const { app, BrowserWindow, shell, dialog } = require('electron')
+const { app, BrowserWindow, shell, dialog, nativeTheme } = require('electron')
 const path = require('path')
 const { pathToFileURL } = require('url')
 const { startUpdater } = require('./updater.cjs')
@@ -19,6 +19,29 @@ let server = null
 if (!app.requestSingleInstanceLock()) app.quit()
 // lets Windows show the app's notifications (update progress) under its own name
 if (process.platform === 'win32') app.setAppUserModelId('digital.aspectratio.blueprint')
+
+// Screenshots of an app's live web build for its floors (server/shots.ts): a hidden phone-sized window,
+// given a few seconds to draw its 3D scenes.
+globalThis.blueprintCapture = async (url, { width, height }) => {
+  const w = new BrowserWindow({
+    show: false,
+    width,
+    height,
+    useContentSize: true,
+    webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  })
+  try {
+    w.webContents.setAudioMuted(true)
+    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    await w.loadURL(url)
+    await new Promise((r) => setTimeout(r, 4000))
+    const img = await w.webContents.capturePage()
+    if (img.isEmpty()) throw new Error('The page drew nothing')
+    return img.toJPEG(82)
+  } finally {
+    w.destroy()
+  }
+}
 
 async function startServer() {
   // Settings, token and notifications live in the app's own data folder.
@@ -50,6 +73,17 @@ function createWindow(url) {
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)
     return { action: 'deny' }
+  })
+
+  // The title bar follows the dashboard's theme: black on Dark, white on Light, Windows' own on Blueprint.
+  // The page announces its theme as <meta name="theme-color">.
+  win.webContents.on('did-change-theme-color', (_e, color) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(color || '')
+    if (!m) return (nativeTheme.themeSource = 'system')
+    const n = parseInt(m[1], 16)
+    const lum = (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255
+    nativeTheme.themeSource = lum > 0.8 ? 'light' : lum < 0.15 ? 'dark' : 'system'
+    win.setBackgroundColor(`#${m[1]}`)
   })
 
   win.loadURL(url)

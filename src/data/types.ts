@@ -179,6 +179,8 @@ export interface Store {
   headless: string | null
   /** an Admin API token is saved on this computer and works */
   connected: boolean
+  /** access is saved on this computer, so the store stays connected between launches (it may still be loading) */
+  linked?: boolean
   error: string | null
   name: string | null
   currency: string | null
@@ -242,6 +244,52 @@ export interface StoreProductDetail {
   storeUrl: string | null
 }
 
+/** Whether a project is a website (floors are its pages) or an app (floors are its game modes or screens). */
+export type ProjectKind = 'site' | 'app'
+
+/** An image in the app's repo, served by the local API. `crop` picks one cell out of a sprite sheet. */
+export interface AppImage {
+  path: string
+  label?: string
+  crop?: { cols: number; rows: number; index: number }
+}
+
+/** One option on a floor: a skin, a card design, an image. `shot` is a query for the app's web build to screenshot. */
+export interface AppItem {
+  id: string
+  name: string
+  note?: string
+  swatch?: string
+  images: AppImage[]
+  shot?: string
+}
+
+export interface AppGallery {
+  id: string
+  name: string
+  note?: string
+  items: AppItem[]
+}
+
+/** A floor of an app's building: the home screen, or a game mode / screen. */
+export interface AppFloor {
+  id: string
+  name: string
+  note?: string
+  galleries: AppGallery[]
+}
+
+/** An app's floors and what's on them, read from its code (or its blueprint.app.json). */
+export interface AppMap {
+  /** the commit it was read at */
+  sha: string
+  /** the app's folder in the repo ('' for the root) */
+  root: string
+  source: 'manifest' | 'code'
+  floors: AppFloor[]
+  checked: string
+}
+
 export interface Project {
   id: string
   name: string
@@ -275,6 +323,10 @@ export interface Project {
   quality: Quality
   /** the Shopify store this site sells through, if any */
   store: Store | null
+  /** website or app: set on the building, else guessed from the code */
+  kind?: ProjectKind
+  /** an app's floors, when it is an app */
+  app?: AppMap | null
 }
 
 export type NoteKind =

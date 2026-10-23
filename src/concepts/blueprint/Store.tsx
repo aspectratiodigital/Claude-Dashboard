@@ -20,7 +20,7 @@ export function money(n: number, currency: string | null) {
 export const storeLine = (p: Project) => {
   const s = p.store
   if (!s) return ''
-  if (!s.connected) return s.error ? 'needs attention' : 'not connected'
+  if (!s.connected) return s.error ? 'needs attention' : s.linked ? 'connecting…' : 'not connected'
   return `${s.ordersToday} order${s.ordersToday === 1 ? '' : 's'} today · ${money(s.salesToday, s.currency)}`
 }
 
@@ -109,17 +109,17 @@ export function StorePanel({ project: p }: { project: Project }) {
           <p className="bp-help">Checked {relTime(s.checked)}. New orders and low stock also arrive as notifications.</p>
         </>
       ) : (
-        <p className="bp-help">{s.error ?? (s.domain ? `This site is built on ${s.domain}. Connect it to see orders, sales and stock here.` : `This site is built on Shopify, but its code doesn't name the store. Add the store's address below to attach it.`)}</p>
+        <p className="bp-help">{s.error ?? (s.linked ? `Connected on this computer. Reading ${s.domain}…` : s.domain ? `This site is built on ${s.domain}. Connect it to see orders, sales and stock here.` : `This site is built on Shopify, but its code doesn't name the store. Add the store's address below to attach it.`)}</p>
       )}
       <div className="bp-actions">
         <a className="bp-open" href={s.adminUrl} target="_blank" rel="noreferrer">
           Shopify admin <span>orders, products, themes</span>
         </a>
         <button className="bp-link" onClick={() => setEditing((v) => !v)}>
-          {s.connected ? 'Change access' : editing ? 'Hide' : 'Connect'}
+          {s.connected || s.linked ? (editing ? 'Hide' : 'Change access') : editing ? 'Hide' : 'Connect'}
         </button>
       </div>
-      {(editing || (!s.connected && !s.error)) && <StoreConnect project={p} />}
+      {(editing || (!s.connected && !s.error && !s.linked)) && <StoreConnect project={p} />}
     </>
   )
 }

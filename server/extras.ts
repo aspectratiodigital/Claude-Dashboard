@@ -177,3 +177,63 @@ export function addSuggested(exe: string, id: string): Promise<{ ok: boolean; ou
     })
   })
 }
+
+// --- adding and removing your own skills ---------------------------------------------------------
+
+/** Where skills go: yours (every project, ~/.claude/skills) or one project's (.claude/skills in its folder). */
+export const skillsDir = (folder: string | null) => (folder ? path.join(folder, '.claude', 'skills') : path.join(HOME, 'skills'))
+
+const skillSlug = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+
+/** A SKILL.md from a name, a description and its instructions. */
+export function writtenSkill(name: string, description: string, body: string) {
+  const one = (s: string) => s.replace(/\s+/g, ' ').trim()
+  return `---\nname: ${skillSlug(name)}\ndescription: ${one(description).replace(/^["']|["']$/g, '')}\n---\n\n${body.trim()}\n`
+}
+
+/**
+ * Save a skill: `files` are its SKILL.md and anything beside it (scripts, references), by path
+ * inside the skill. A zip with one top folder is unwrapped. Returns the skill's name.
+ */
+export function saveSkill(dir: string, files: { name: string; data: Buffer }[], fallbackName: string): { ok: true; name: string } | { ok: false; error: string } {
+  const clean = files.map((f) => ({ ...f, name: f.name.replace(/\\/g, '/').replace(/^\/+/, '') })).filter((f) => !/(^|\/)(__MACOSX|\.DS_Store)/.test(f.name))
+  const skill = clean.filter((f) => /(^|\/)SKILL\.md$/i.test(f.name)).sort((a, b) => a.name.split('/').length - b.name.split('/').length)[0]
+  if (!skill) return { ok: false, error: 'There’s no SKILL.md in that file' }
+  const prefix = skill.name.slice(0, skill.name.length - 'SKILL.md'.length)
+  const fm = (() => {
+    const m = skill.data.toString('utf8').match(/^---\r?\n([\s\S]*?)\r?\n---/)
+    return m ? Object.fromEntries(m[1].split(/\r?\n/).map((l) => l.match(/^([a-zA-Z_-]+):\s*(.*)$/)).filter((x): x is RegExpMatchArray => !!x).map((x) => [x[1], x[2].replace(/^["']|["']$/g, '').trim()])) : {}
+  })() as Record<string, string>
+  if (!fm.description) return { ok: false, error: 'The SKILL.md needs a description at the top (between --- lines), so Claude knows when to use it' }
+  const name = skillSlug(fm.name || prefix.split('/').filter(Boolean).pop() || fallbackName)
+  if (!name) return { ok: false, error: 'The skill needs a name' }
+  const target = path.join(dir, name)
+  fs.rmSync(target, { recursive: true, force: true })
+  for (const f of clean) {
+    if (!f.name.startsWith(prefix)) continue
+    const rel = f.name.slice(prefix.length)
+    const out = path.resolve(target, rel === skill.name.slice(prefix.length) ? 'SKILL.md' : rel)
+    if (!out.startsWith(target + path.sep)) continue
+    fs.mkdirSync(path.dirname(out), { recursive: true })
+    fs.writeFileSync(out, f.data)
+  }
+  return { ok: true, name }
+}
+
+/** Remove one of your skills (or the project's), by its name. Account and plugin skills stay. */
+export function removeSkill(dir: string, name: string): boolean {
+  for (const file of skillsIn(dir, 1)) {
+    const fm = frontmatter(file)
+    const d = path.dirname(file)
+    if ((fm.name || path.basename(d)) === name && path.dirname(d) === dir) {
+      fs.rmSync(d, { recursive: true, force: true })
+      return true
+    }
+  }
+  return false
+}

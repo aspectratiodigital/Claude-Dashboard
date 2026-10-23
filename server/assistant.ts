@@ -74,8 +74,9 @@ function brief(p: Project) {
   return [
     `- ${p.name} (${p.repo}): ${p.status}, ${p.reason}`,
     p.url ? `  live: ${p.url}` : '',
-    open.length ? `  open PRs: ${open.map((x) => `#${x.number} ${x.title} [checks ${x.checks}]`).join('; ')}` : '',
-    p.issues.length ? `  open issues: ${p.issues.slice(0, 6).map((x) => `#${x.number} ${x.title}`).join('; ')}` : '',
+    `  repo: https://github.com/${p.repo}`,
+    open.length ? `  open PRs: ${open.map((x) => `[#${x.number} ${x.title}](${x.url}) [checks ${x.checks}]`).join('; ')}` : '',
+    p.issues.length ? `  open issues: ${p.issues.slice(0, 6).map((x) => `[#${x.number} ${x.title}](${x.url})`).join('; ')}` : '',
     p.store ? `  ${storeBrief(p.store)}` : '',
   ]
     .filter(Boolean)
@@ -85,7 +86,20 @@ function brief(p: Project) {
 function contextFor(projects: Project[], site: Project | null, folder: string | null) {
   const lines = [
     "You're the assistant inside Dylan's Blueprint dashboard for his web studio, Aspect Ratio Digital. It shows his sites, pulled live from GitHub.",
-    'Reply in plain, friendly sentences and keep it short. Replies are shown as Markdown, so lists, code blocks and the odd table are fine, but skip big headings.',
+    '',
+    'How to write replies (they are shown as Markdown):',
+    '- Lead with the answer or the result in one or two plain sentences. Dylan skims, so the first line should be what he needs to know or do.',
+    '- Then break the detail up: a bullet list for several items, a short `###` heading per subject when a reply covers more than one, and a blank line between paragraphs. Never one long block of text.',
+    "- Keep paragraphs to two or three sentences and bullets to one line where you can. Use **bold** for the few words that matter most (a site's name, a status, a number).",
+    '- Link what you mention: pull requests, issues, commits, files on GitHub, live pages and docs, as Markdown links with readable text, e.g. [#12 Fix the footer](https://github.com/owner/repo/pull/12). The links for each project are below.',
+    '- When Dylan needs to decide or do something, end with a short **Your call** (or **Next step**) section: one bullet per option or action, your recommendation first.',
+    '- Use a table only to compare things side by side, and code blocks only for code or commands. Write in plain English, no jargon he would have to look up.',
+    '',
+    'End every reply with one last line on its own, exactly one of these, which the dashboard reads to sort the thread and hides from Dylan:',
+    '[[status: waiting]] when you need Dylan: a question, a decision, an Allow, or something he has to do.',
+    '[[status: idle]] when your turn is done and nothing is needed from him, but the work may carry on.',
+    "[[status: resolved]] when what he asked for is finished and there's nothing left to do in this thread.",
+    '',
     "When Dylan asks for a file (a document, image, export or code), write it into the working folder and mention its name: the dashboard shows each file you write with Open and Download buttons.",
     "If something you try is refused for permission, say in one line what you wanted to do and why. Dylan will see an Allow button for it.",
     '',
@@ -213,6 +227,16 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   let session: string | null = o.resume ?? null
   let buf = ''
   let streamed = false
+  /** text already sent, so a later message's text starts on a new paragraph rather than running on */
+  let wrote = false
+  let gap = false
+  const text = (t: string) => {
+    if (!t) return
+    if (gap && wrote) send({ type: 'text', text: '\n\n' })
+    gap = false
+    wrote = true
+    send({ type: 'text', text: t })
+  }
   let errText = ''
   let finished = false
   const asks: Ask[] = []
@@ -247,9 +271,12 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
     if (d.session_id) session = d.session_id
     if (d.type === 'stream_event' && d.event?.type === 'content_block_delta' && d.event.delta?.type === 'text_delta') {
       streamed = true
-      send({ type: 'text', text: d.event.delta.text })
+      text(d.event.delta.text)
     } else if (d.type === 'stream_event' && d.event?.type === 'message_start') {
       streamed = false
+      gap = true
+    } else if (d.type === 'stream_event' && d.event?.type === 'content_block_start' && d.event.content_block?.type === 'text') {
+      gap = true
     } else if (d.type === 'assistant') {
       for (const c of d.message?.content ?? []) {
         if (c.type === 'tool_use') {
@@ -257,7 +284,10 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
           const file = c.input?.file_path ?? c.input?.notebook_path
           if (typeof file === 'string' && /^(Write|Edit|MultiEdit|NotebookEdit)$/.test(c.name)) writes.set(c.id, { file: path.resolve(work, file), action: c.name === 'Write' && !fs.existsSync(path.resolve(work, file)) ? 'created' : 'edited' })
         }
-        else if (c.type === 'text' && !streamed && c.text) send({ type: 'text', text: c.text })
+        else if (c.type === 'text' && !streamed && c.text) {
+          gap = true
+          text(c.text)
+        }
       }
     } else if (d.type === 'user') {
       // a file Claude wrote or edited: offer it to open or download
@@ -334,4 +364,14 @@ export function ask(exe: string, prompt: string, model = 'haiku'): Promise<strin
     child.on('close', (code) => done(code === 0 && out.trim() ? out.trim() : null))
     child.stdin?.end(prompt)
   })
+}
+
+/** A two-to-five word title for a new thread, from its first message and reply, like "Shopify order alerts". */
+export async function titleFor(exe: string, prompt: string, reply: string): Promise<string | null> {
+  const words = await ask(
+    exe,
+    `Name this conversation for a list of threads: two to five plain words saying what it is about, in sentence case, no quotes, no full stop, no verb like "fix" or "add" at the start. Answer with the title only.\n\nDylan asked:\n${prompt.slice(0, 1500)}\n\nClaude answered:\n${reply.slice(0, 1500)}`,
+  )
+  const t = words?.split('\n')[0].replace(/^["'*#\s]+|["'*.\s]+$/g, '').trim()
+  return t && t.length <= 60 ? t : null
 }

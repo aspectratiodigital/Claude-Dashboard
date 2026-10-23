@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import type { Project } from '../../data/types'
 import { useData, useProject } from '../../data/store'
 import { STATUS_LABEL, relTime } from '../../data/derive'
-import { EFFORTS, MODELS, convsFor, fileUrl, hasTalk, openFile, uploadFile, useClaude, type Attachment, type Conversation, type MadeFile } from '../../shared/claude'
+import { EFFORTS, MODELS, THREAD_STATES, cleanReply, convsFor, fileUrl, hasTalk, openFile, threadState, uploadFile, useClaude, type Attachment, type Conversation, type MadeFile, type ThreadState } from '../../shared/claude'
 import { KnowledgePanel, ToolsPanel, useExtras } from './ClaudeExtras'
 import { Icon } from '../../shared/icons'
 import { useApp } from '../../store'
@@ -100,6 +100,39 @@ function Copy({ text }: { text: string }) {
   )
 }
 
+// Code Claude edits in the project shows as one "Changed N files" line; documents, images and
+// exports it makes get a card each, with Open, Show in folder and Download.
+const CODE = /\.(astro|[cm]?[jt]sx?|vue|svelte|css|scss|sass|less|html?|json|ya?ml|toml|md|mdx|liquid|php|py|rb|go|rs|java|kt|swift|sh|ps1|lock|env|gitignore|svg|xml|graphql|gql|sql|prisma)$/i
+const isDeliverable = (f: MadeFile) => f.action === 'created' && !CODE.test(f.name)
+
+function ChangedFiles({ files }: { files: MadeFile[] }) {
+  const [open, setOpen] = useState(false)
+  const made = files.filter((f) => f.action === 'created').length
+  return (
+    <div className="cl-changed">
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <Icon.file size={12} />
+        <b>
+          Changed {files.length} file{files.length === 1 ? '' : 's'}
+        </b>
+        {made > 0 && <span>{made} new</span>}
+        <i aria-hidden>{open ? '▾' : '▸'}</i>
+      </button>
+      {open && (
+        <ul>
+          {files.map((f) => (
+            <li key={f.path} title={f.path}>
+              <b>{f.name}</b> <span>{f.action}</span>
+              <button onClick={() => openFile(f.path, false)}>Open</button>
+              <button onClick={() => openFile(f.path, true)}>Show in folder</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /** The messages of one conversation, newest at the bottom. */
 export function ChatLog({ conv }: { conv: Conversation }) {
   const answer = useClaude((s) => s.answer)
@@ -125,7 +158,7 @@ export function ChatLog({ conv }: { conv: Conversation }) {
             )}
             {m.role === 'claude' && !m.error ? (
               <>
-                {m.text && <Markdown text={m.text} />}
+                {m.text && <Markdown text={cleanReply(m.text, m.streaming)} />}
                 {m.streaming && !m.doing && <i className="bp-caret" />}
               </>
             ) : (
@@ -136,13 +169,14 @@ export function ChatLog({ conv }: { conv: Conversation }) {
                 <i className="bp-caret" /> {m.doing}
               </p>
             )}
-            {m.files && (
+            {m.files?.some(isDeliverable) && (
               <ul className="cl-files">
-                {m.files.map((f) => (
+                {m.files.filter(isDeliverable).map((f) => (
                   <FileChip key={f.path} f={f} />
                 ))}
               </ul>
             )}
+            {m.files?.some((f) => !isDeliverable(f)) && <ChangedFiles files={m.files.filter((f) => !isDeliverable(f))} />}
             {m.asks && (
               <div className="bp-ask">
                 <ul>
@@ -166,7 +200,7 @@ export function ChatLog({ conv }: { conv: Conversation }) {
             )}
             {m.role === 'claude' && !m.streaming && m.text && talked && i > 0 && (
               <div className="cl-acts">
-                <Copy text={m.text} />
+                <Copy text={cleanReply(m.text)} />
                 {i === conv.messages.length - 1 && (
                   <button onClick={() => retry(conv.id)} disabled={conv.speaking} title="Ask again">
                     <Icon.refresh size={12} /> Retry
@@ -413,7 +447,38 @@ function Threads({ projectId, compact }: { projectId: string | null; compact?: b
   const remove = useClaude((s) => s.remove)
   const [q, setQ] = useState('')
   const find = q.trim().toLowerCase()
+  const [showResolved, setShowResolved] = useState(false)
   const shown = convs.filter((c) => (hasTalk(c) || c.id === current) && (!find || c.title.toLowerCase().includes(find) || c.messages.some((m) => m.text.toLowerCase().includes(find))))
+  const groups = THREAD_STATES.map((g) => ({ ...g, list: shown.filter((c) => (hasTalk(c) ? threadState(c) : 'idle') === g.id) })).filter((g) => g.list.length)
+  const row = (c: Conversation) => {
+    const st: ThreadState = hasTalk(c) ? threadState(c) : 'idle'
+    const n = c.messages.filter((m) => m.role === 'user').length
+    return (
+      <li key={c.id} data-state={st}>
+        <button aria-pressed={c.id === current} onClick={() => pick(c.id)} data-speaking={c.speaking || undefined} title={THREAD_STATES.find((x) => x.id === st)?.label}>
+          <b>
+            <i className="cl-state" data-state={st} aria-hidden />
+            {c.title}
+          </b>
+          <span>{c.speaking ? 'Working…' : `${n} message${n === 1 ? '' : 's'} · ${relTime(new Date(c.updated).toISOString())}`}</span>
+        </button>
+        {!compact && hasTalk(c) && (
+          <button className="cl-del" onClick={() => window.confirm(`Delete “${c.title}”?`) && remove(c.id)} title="Delete this thread" aria-label={`Delete ${c.title}`}>
+            ✕
+          </button>
+        )}
+      </li>
+    )
+  }
+  if (compact)
+    return (
+      <nav className="cl-tabs" aria-label="Threads">
+        <button className="cl-new" onClick={() => start(projectId)}>
+          + New thread
+        </button>
+        <ul>{groups.flatMap((g) => (g.id === 'resolved' ? g.list.filter((c) => c.id === current) : g.list)).map(row)}</ul>
+      </nav>
+    )
   return (
     <nav className={compact ? 'cl-tabs' : 'cl-threads'} aria-label="Threads">
       {!compact && <h3>Threads</h3>}
@@ -421,21 +486,20 @@ function Threads({ projectId, compact }: { projectId: string | null; compact?: b
         + New thread
       </button>
       {!compact && convs.filter(hasTalk).length > 3 && <input className="cl-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search threads" aria-label="Search threads" />}
-      <ul>
-        {shown.map((c) => (
-          <li key={c.id}>
-            <button aria-pressed={c.id === current} onClick={() => pick(c.id)} data-speaking={c.speaking || undefined}>
-              <b>{c.title}</b>
-              <span>{c.speaking ? 'Working…' : `${c.messages.filter((m) => m.role === 'user').length} message${c.messages.filter((m) => m.role === 'user').length === 1 ? '' : 's'} · ${relTime(new Date(c.updated).toISOString())}`}</span>
+      {groups.map((g) => (
+        <section key={g.id} className="cl-group" data-state={g.id}>
+          {g.id === 'resolved' ? (
+            <button className="cl-group-head" onClick={() => setShowResolved((v) => !v)} aria-expanded={showResolved || !!find}>
+              {g.label} <span>{g.list.length}</span> <i aria-hidden>{showResolved || find ? '▾' : '▸'}</i>
             </button>
-            {!compact && hasTalk(c) && (
-              <button className="cl-del" onClick={() => window.confirm(`Delete “${c.title}”?`) && remove(c.id)} title="Delete this thread" aria-label={`Delete ${c.title}`}>
-                ✕
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+          ) : (
+            <h4 className="cl-group-head">
+              {g.label} <span>{g.list.length}</span>
+            </h4>
+          )}
+          {(g.id !== 'resolved' || showResolved || !!find) && <ul>{g.list.map(row)}</ul>}
+        </section>
+      ))}
     </nav>
   )
 }
@@ -521,6 +585,11 @@ export function ClaudeFull() {
             <p>{project ? `${project.repo} · ${project.reason}` : 'Questions about every site at once. Pick a project on the left to have Claude work in its folder.'}</p>
           </div>
           <div className="cl-head-acts">
+            {conv && hasTalk(conv) && !conv.speaking && (
+              <button className="cl-tool" onClick={() => useClaude.getState().resolve(conv.id, conv.status !== 'resolved')} title={conv.status === 'resolved' ? 'Open this thread again' : 'Mark this thread finished'}>
+                {conv.status === 'resolved' ? 'Reopen' : '✓ Resolve'}
+              </button>
+            )}
             <button className="cl-tool" aria-pressed={drawer === 'knowledge'} onClick={() => setDrawer((d) => (d === 'knowledge' ? null : 'knowledge'))} title="Instructions and files Claude uses in every thread">
               <Icon.page size={13} /> Instructions &amp; files
             </button>

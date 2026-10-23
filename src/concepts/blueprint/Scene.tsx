@@ -4,7 +4,7 @@ import { OrthographicCamera } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Project } from '../../data/types'
 import { useData } from '../../data/store'
-import { signals, threadsByPush } from '../../data/derive'
+import { floorsIn, signals, threadsByPush } from '../../data/derive'
 import { useApp } from '../../store'
 import { Anchor } from '../../shared/Labels'
 import { since, useImpulses, type Impulses } from '../../shared/pulse'
@@ -39,7 +39,7 @@ export const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
 /** Lay projects out on a grid of lots. One floor per page of the site; footprint grows with this week's commits. */
 export function useLots(): Lot[] {
   const projects = useData((s) => s.projects)
-  const key = projects.map((p) => `${p.id}:${p.pages.length}:${p.commitsWeek}`).join('|')
+  const key = projects.map((p) => `${p.id}:${floorsIn(p)}:${p.commitsWeek}`).join('|')
   return useMemo(() => {
     const n = projects.length
     const cols = Math.max(2, Math.ceil(Math.sqrt(n * 1.6)))
@@ -54,7 +54,7 @@ export function useLots(): Lot[] {
         letter: LETTERS[i % LETTERS.length],
         x: (col - (cols - 1) / 2) * SPACE_X,
         z: (row - (rows - 1) / 2) * SPACE_Z,
-        floors: THREE.MathUtils.clamp(project.pages.length || 1, 1, MAX_FLOORS),
+        floors: THREE.MathUtils.clamp(floorsIn(project) || 1, 1, MAX_FLOORS),
         w,
         d: w * (0.72 + (i % 3) * 0.1),
       }

@@ -400,6 +400,34 @@ li[data-unread='true'] .drawer-text b::after {
   border-top: 1px solid var(--ui-line);
   padding: 4px 16px 16px;
 }
+.drawer-test-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: var(--ui-muted);
+  cursor: pointer;
+}
+.drawer-test-head:hover {
+  color: var(--ui-fg);
+}
+.drawer-test-head h3 {
+  color: inherit;
+}
+.drawer-test-head svg {
+  margin-right: 8px;
+  transition: transform 0.18s ease;
+}
+.drawer-test[data-open='false'] .drawer-test-head svg {
+  transform: rotate(180deg);
+}
+.drawer-test[data-open='false'] {
+  padding-bottom: 6px;
+}
 .drawer-test p {
   margin: 0 0 8px;
   font-size: 12px;
