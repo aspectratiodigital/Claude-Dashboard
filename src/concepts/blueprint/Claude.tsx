@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import type { Project } from '../../data/types'
 import { useData, useProject } from '../../data/store'
 import { STATUS_LABEL, relTime } from '../../data/derive'
-import { EFFORTS, MODELS, THREAD_STATES, cleanReply, convsFor, fileUrl, hasTalk, openFile, threadState, uploadFile, useClaude, type Attachment, type Conversation, type MadeFile, type ThreadState } from '../../shared/claude'
+import { ASK_TEXT, EFFORTS, MODELS, PERMISSIONS, THREAD_STATES, cleanReply, convsFor, fileUrl, hasTalk, openFile, threadState, uploadFile, useClaude, type Attachment, type ClaudeTask, type Conversation, type MadeFile, type ThreadState } from '../../shared/claude'
 import { KnowledgePanel, ToolsPanel, useExtras } from './ClaudeExtras'
 import { Icon } from '../../shared/icons'
 import { useApp } from '../../store'
@@ -133,6 +133,77 @@ function ChangedFiles({ files }: { files: MadeFile[] }) {
   )
 }
 
+/** What Claude said between steps, folded into one line under the answer. */
+function Steps({ steps }: { steps: string[] }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="cl-changed cl-steps">
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <b>
+          Worked through {steps.length} step{steps.length === 1 ? '' : 's'}
+        </b>
+        <i aria-hidden>{open ? '▾' : '▸'}</i>
+      </button>
+      {open && (
+        <ol>
+          {steps.map((t, i) => (
+            <li key={i}>
+              <Markdown text={t} />
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+/** Claude's plan while it works: ticks as it goes, and gone once it's done. */
+function Tasks({ tasks }: { tasks: ClaudeTask[] }) {
+  const done = tasks.filter((t) => t.status === 'completed').length
+  return (
+    <div className="cl-tasks" role="status">
+      <small>
+        Tasks · {done} of {tasks.length} done
+      </small>
+      <ul>
+        {tasks.map((t, i) => (
+          <li key={i} data-status={t.status}>
+            <i aria-hidden>{t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '✱' : '○'}</i>
+            <span>{t.status === 'in_progress' && t.active ? t.active : t.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** A tiny crane moving a block back and forth, for while Claude works. */
+function Crane() {
+  return (
+    <svg className="cl-crane" viewBox="0 0 30 16" width="30" height="16" aria-hidden>
+      <path className="cl-crane-frame" d="M0 15.5h30M4 15.5V1.5M1 2.5h26M4 1.5 1 2.5M4 4.5l3-2M4 7.5l3-5" />
+      <rect className="cl-crane-weight" x="0.5" y="2.5" width="2.5" height="2" />
+      <g className="cl-crane-trolley">
+        <rect x="8" y="2" width="2.5" height="1.2" />
+        <rect className="cl-crane-cable" x="9" y="3" width="0.5" height="9.5" />
+        <rect className="cl-crane-block" x="7.5" y="12.5" width="3.5" height="3" />
+      </g>
+    </svg>
+  )
+}
+
+/** The one line at the bottom while Claude works: what it's doing now, replaced by the next thing. */
+function Working({ text }: { text: string }) {
+  return (
+    <p className="cl-working" role="status">
+      <Crane />
+      <span key={text} title={text}>
+        {text}
+      </span>
+    </p>
+  )
+}
+
 /** The messages of one conversation, newest at the bottom. */
 export function ChatLog({ conv }: { conv: Conversation }) {
   const answer = useClaude((s) => s.answer)
@@ -141,52 +212,48 @@ export function ChatLog({ conv }: { conv: Conversation }) {
   const last = conv.messages.at(-1)
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'smooth' })
-  }, [conv.id, conv.messages.length, last?.text, last?.doing, last?.files?.length])
+  }, [conv.id, conv.messages.length, last?.text, last?.doing, last?.streaming, last?.files?.length])
   const talked = conv.messages.some((m) => m.role === 'user')
   return (
     <ol ref={log} className="cl-log" aria-live="polite">
-      {conv.messages.map((m, i) => (
-        <li key={m.id} data-role={m.role} data-error={m.error || undefined}>
-          <span>{m.role === 'claude' ? 'C' : 'D'}</span>
-          <div>
-            {m.attachments && (
-              <ul className="cl-chips">
-                {m.attachments.map((a) => (
-                  <AttachmentChip key={a.id} a={a} />
-                ))}
-              </ul>
-            )}
-            {m.role === 'claude' && !m.error ? (
-              <>
-                {m.text && <Markdown text={cleanReply(m.text, m.streaming)} />}
-                {m.streaming && !m.doing && <i className="bp-caret" />}
-              </>
-            ) : (
-              <p>{m.text}</p>
-            )}
-            {m.doing && (
-              <p className="bp-doing">
-                <i className="bp-caret" /> {m.doing}
-              </p>
-            )}
-            {m.files?.some(isDeliverable) && (
-              <ul className="cl-files">
-                {m.files.filter(isDeliverable).map((f) => (
-                  <FileChip key={f.path} f={f} />
-                ))}
-              </ul>
-            )}
-            {m.files?.some((f) => !isDeliverable(f)) && <ChangedFiles files={m.files.filter((f) => !isDeliverable(f))} />}
-            {m.asks && (
-              <div className="bp-ask">
-                <ul>
-                  {m.asks.map((a) => (
-                    <li key={a.rule}>{a.what}</li>
+      {conv.messages.map((m, i) =>
+        m.answered && m.text === ASK_TEXT ? null : (
+          <li key={m.id} data-role={m.role} data-error={m.error || undefined}>
+            <span>{m.role === 'claude' ? 'C' : 'D'}</span>
+            <div>
+              {m.attachments && (
+                <ul className="cl-chips">
+                  {m.attachments.map((a) => (
+                    <AttachmentChip key={a.id} a={a} />
                   ))}
                 </ul>
-                {m.answered ? (
-                  <em>{m.answered === 'allowed' ? 'Allowed' : 'Not allowed'}</em>
-                ) : (
+              )}
+              {m.role === 'claude' && !m.error ? (
+                <>
+                  {m.text && <Markdown text={cleanReply(m.text, m.streaming)} />}
+                  {m.streaming && !!m.text && <i className="bp-caret" />}
+                </>
+              ) : (
+                <p>{m.text}</p>
+              )}
+              {!m.streaming && m.steps?.length ? <Steps steps={m.steps} /> : null}
+              {m.files?.some(isDeliverable) && (
+                <ul className="cl-files">
+                  {m.files.filter(isDeliverable).map((f) => (
+                    <FileChip key={f.path} f={f} />
+                  ))}
+                </ul>
+              )}
+              {m.files?.some((f) => !isDeliverable(f)) && <ChangedFiles files={m.files.filter((f) => !isDeliverable(f))} />}
+              {m.asks && !m.answered && (
+                <div className="bp-ask">
+                  <ul>
+                    {m.asks.map((a) => (
+                      <li key={a.rule} title={a.what}>
+                        {a.what}
+                      </li>
+                    ))}
+                  </ul>
                   <div>
                     <button onClick={() => answer(conv.id, m.id, true)} disabled={conv.speaking}>
                       Allow
@@ -195,22 +262,24 @@ export function ChatLog({ conv }: { conv: Conversation }) {
                       No
                     </button>
                   </div>
-                )}
-              </div>
-            )}
-            {m.role === 'claude' && !m.streaming && m.text && talked && i > 0 && (
-              <div className="cl-acts">
-                <Copy text={cleanReply(m.text)} />
-                {i === conv.messages.length - 1 && (
-                  <button onClick={() => retry(conv.id)} disabled={conv.speaking} title="Ask again">
-                    <Icon.refresh size={12} /> Retry
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </li>
-      ))}
+                </div>
+              )}
+              {m.streaming && m.tasks?.length ? <Tasks tasks={m.tasks} /> : null}
+              {m.streaming && <Working text={m.doing ?? (m.text ? 'Writing the reply' : 'Thinking')} />}
+              {m.role === 'claude' && !m.streaming && m.text && talked && i > 0 && (
+                <div className="cl-acts">
+                  <Copy text={cleanReply(m.text)} />
+                  {i === conv.messages.length - 1 && (
+                    <button onClick={() => retry(conv.id)} disabled={conv.speaking} title="Ask again">
+                      <Icon.refresh size={12} /> Retry
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </li>
+        ),
+      )}
     </ol>
   )
 }
@@ -221,6 +290,8 @@ export function ModelPicker() {
   const effort = useClaude((s) => s.effort)
   const setModel = useClaude((s) => s.setModel)
   const setEffort = useClaude((s) => s.setEffort)
+  const permission = useClaude((s) => s.permission)
+  const setPermission = useClaude((s) => s.setPermission)
   return (
     <div className="cl-picker">
       <label title={MODELS.find((m) => m.id === model)?.note}>
@@ -238,6 +309,16 @@ export function ModelPicker() {
         <select value={effort} onChange={(e) => setEffort(e.target.value)}>
           {EFFORTS.map((m) => (
             <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label title={PERMISSIONS.find((m) => m.id === permission)?.note}>
+        <span>Permissions</span>
+        <select value={permission} onChange={(e) => setPermission(e.target.value)}>
+          {PERMISSIONS.map((m) => (
+            <option key={m.id} value={m.id} title={m.note}>
               {m.label}
             </option>
           ))}

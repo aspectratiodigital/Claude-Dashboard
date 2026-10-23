@@ -3,11 +3,11 @@ import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import type { AppMap, Change, Health, Note, NoteKind, Page, Project, Quality, Snapshot, Status, Store, Thread } from '../src/data/types.ts'
-import { githubAuth, loadConfig, loadSettings, projectSettings, psiKey, saveSettings, type Config } from './config.ts'
+import { ghInstalled, ghToken, githubAuth, loadConfig, loadSettings, projectSettings, psiKey, saveSettings, type Config } from './config.ts'
 import { GitHub, listRepos, loadChange, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
 import { scanLocalSessions, type LocalSession } from './claude.ts'
-import { ask, findClaude, runClaude, stopAll, titleFor } from './assistant.ts'
+import { ask, findClaude, permissionMode, runClaude, stopAll, titleFor } from './assistant.ts'
 import { changePrompt } from '../src/data/describe.ts'
 import { deleteConversation, host, listConversations, loadShared, oneDriveSuggestion, saveConversation, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
 import { blankStore, cleanDomain, loadCatalog, loadProduct, loadStore, type ShopifyCred } from './shopify.ts'
@@ -450,7 +450,10 @@ class Engine {
     const key = p.repo.toLowerCase()
     const name = slug(repoName)
     const hit = this.sessions.filter((s) => (s.repo ? s.repo === key : slug(s.folder) === name)).sort((a, b) => b.updated.localeCompare(a.updated))[0]
-    return hit?.cwd ?? null
+    if (hit?.cwd) return hit.cwd
+    // a copy Claude cloned into its workspace
+    const cloned = path.join(WORKSPACE, repoName)
+    return fs.existsSync(path.join(cloned, '.git')) ? cloned : null
   }
 
   addNote(d: Draft, seeded = false) {
@@ -693,6 +696,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       return runClaude(
         {
           exe,
+          mode: await permissionMode(exe, typeof body.permission === 'string' ? body.permission : undefined),
           prompt,
           projects: engine.projects,
           site,
@@ -704,6 +708,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
           history: typeof body.history === 'string' ? body.history.slice(-60_000) : undefined,
           files: Array.isArray(body.files) ? (body.files as unknown[]).slice(0, 20).map((id) => (typeof id === 'string' ? uploadPath(id) : null)).filter((f): f is string => !!f) : undefined,
           knowledge: knowledgeFor(site?.id ?? null),
+          // a signed-in GitHub CLI's own token can usually push, so it beats a read-only dashboard token
+          github: { token: (await ghToken()) ?? (await githubAuth()).token, cli: await ghInstalled() },
         },
         res,
       )
@@ -916,7 +922,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
     case 'POST /api/prefs': {
       const body = await readBody(req)
       const pick = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
-      savePrefs({ theme: pick('theme'), font: pick('font'), cars: typeof body.cars === 'boolean' ? body.cars : undefined, model: pick('model'), effort: pick('effort'), at: Number(body.at) || Date.now() })
+      savePrefs({ theme: pick('theme'), font: pick('font'), cars: typeof body.cars === 'boolean' ? body.cars : undefined, model: pick('model'), effort: pick('effort'), permission: pick('permission'), at: Number(body.at) || Date.now() })
       return json(res, 200, { ok: true })
     }
 

@@ -9,15 +9,20 @@ import { storeBrief } from './shopify.ts'
 
 // The Claude bar: runs your own Claude Code (`claude -p`) in the selected
 // project's folder and streams what it says and does back to the dashboard as
-// NDJSON. Claude may read freely; anything that edits files or runs commands
-// is refused by Claude Code and comes back as an "ask", which the dashboard
-// turns into an Allow button. Allowing re-runs the same session with exactly
-// those actions permitted.
+// NDJSON. How much it may do without asking is the permission mode picked in
+// the dashboard: Auto (Claude Code's own auto mode, the same as Claude on the
+// web: it gets on with edits and commands and only stops for risky ones), Ask
+// first, Allow edits or Allow everything. Anything refused comes back as an
+// "ask", which the dashboard turns into an Allow button. Allowing re-runs the
+// same session with exactly those actions permitted.
 
 /** Read-only tools Claude can always use. Everything else needs an Allow. */
-const READ_ONLY = ['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'Bash(git status:*)', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git branch:*)', 'Bash(git show:*)']
+const READ_ONLY = ['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'Bash(git status:*)', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git branch:*)', 'Bash(git show:*)']
 const RUN_LIMIT_MS = 15 * 60_000
 export const MODELS = ['fable', 'opus', 'sonnet', 'haiku'] as const
+/** the dashboard's permission choices, as Claude Code's --permission-mode values */
+export const PERMISSIONS = { auto: 'auto', ask: 'default', edits: 'acceptEdits', all: 'bypassPermissions' } as const
+export type Permission = keyof typeof PERMISSIONS
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -28,10 +33,19 @@ export interface Ask {
   what: string
 }
 
+/** one line of Claude's own task list (its TodoWrite / TaskCreate tools) */
+export interface Task {
+  text: string
+  status: 'pending' | 'in_progress' | 'completed'
+  /** how it reads while it's being done, e.g. "Running the tests" */
+  active?: string
+}
+
 export type ClaudeEvent =
   | { type: 'start'; session: string | null; folder: string }
   | { type: 'text'; text: string }
   | { type: 'tool'; text: string }
+  | { type: 'tasks'; tasks: Task[] }
   | { type: 'file'; path: string; name: string; action: 'created' | 'edited' }
   | { type: 'done'; session: string | null; asks: Ask[] }
   | { type: 'error'; text: string }
@@ -83,7 +97,26 @@ function brief(p: Project) {
     .join('\n')
 }
 
-function contextFor(projects: Project[], site: Project | null, folder: string | null) {
+function githubNote(github: RunOptions['github']) {
+  const lines = [
+    '',
+    "Working on Dylan's repos: you can do everything Claude on the web can. Edit, build and test in the project's folder, and use git to commit, branch and push (pushes use this computer's git sign-in).",
+  ]
+  if (github?.token) {
+    lines.push(
+      github.cli
+        ? 'GitHub: the gh CLI is installed and GH_TOKEN is set, so use gh for pull requests, issues, reviews, Actions runs and their logs (e.g. `gh run view <id> --log-failed`, `gh pr create`).'
+        : 'GitHub: GH_TOKEN is set in your environment, but the gh CLI isn\'t installed, so use the REST API with curl: `curl -sL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/OWNER/REPO/...` (a failed job\'s log is at `/actions/jobs/JOB_ID/logs`, its runs at `/actions/runs`). If Dylan would like it simpler, he can install the CLI with `winget install GitHub.cli`.',
+      "If GitHub refuses a change with 403, the token is read-only: tell Dylan to open Settings, click **create a read-and-write token** under Your projects, and paste the new one in (or run `gh auth login` if the GitHub CLI is installed).",
+    )
+  } else lines.push("GitHub: there's no GitHub token on this computer, so you can't reach GitHub's API (pull requests, Actions logs). Tell Dylan to connect GitHub in Settings.")
+  lines.push(
+    'For code changes, work like Claude on the web: make a branch named after the change, commit with a clear message, push, and open a pull request with a title that says what changed. Give Dylan the link and merge only when he says so. Never push straight to the default branch unless he asks.',
+  )
+  return lines
+}
+
+function contextFor(projects: Project[], site: Project | null, folder: string | null, github?: RunOptions['github']) {
   const lines = [
     "You're the assistant inside Dylan's Blueprint dashboard for his web studio, Aspect Ratio Digital. It shows his sites, pulled live from GitHub.",
     '',
@@ -101,14 +134,20 @@ function contextFor(projects: Project[], site: Project | null, folder: string | 
     "[[status: resolved]] when what he asked for is finished and there's nothing left to do in this thread.",
     '',
     "When Dylan asks for a file (a document, image, export or code), write it into the working folder and mention its name: the dashboard shows each file you write with Open and Download buttons.",
+    "For work with three or more steps, start by setting out the plan with your task tool (TaskCreate, or TodoWrite) and mark each task in progress and done as you go: the dashboard shows it to Dylan as a checklist while you work. Anything you say between steps shows as a one-line status that's replaced by the next, so keep it to one short line, and save the detail for your final reply.",
     "If something you try is refused for permission, say in one line what you wanted to do and why. Dylan will see an Allow button for it.",
+    ...githubNote(github),
     '',
     'Current state of every project:',
     ...projects.map(brief),
   ]
   if (site) {
     lines.push('', `Dylan has ${site.name} (${site.repo}) open.`)
-    lines.push(folder ? `You're working in its local folder: ${folder}` : `There's no local copy of ${site.repo} on this computer yet. You can still answer from the state above.`)
+    lines.push(
+      folder
+        ? `You're working in its local folder: ${folder}`
+        : `There's no local copy of ${site.repo} on this computer yet. You can answer from the state above, and if the work needs its code, clone it into your working folder (\`git clone https://github.com/${site.repo}.git\`) and work in that: the dashboard uses that copy from then on.`,
+    )
     const runs = site.runs.slice(0, 3).map((r) => `${r.name} on ${r.branch}: ${r.status} (${r.url})`)
     if (runs.length) lines.push(`Recent CI runs: ${runs.join('; ')}`)
     if (site.store && site.store.headless && site.store.headless !== 'Liquid theme')
@@ -154,8 +193,38 @@ function toolLine(name: string, input: Record<string, unknown>) {
   }
 }
 
+const modeCache = new Map<string, Promise<string>>()
+
+/** The help text of this Claude Code, to see which permission modes it knows (auto came in 2026). */
+function helpOf(exe: string): Promise<string> {
+  let hit = modeCache.get(exe)
+  if (!hit) {
+    hit = new Promise((resolve) => {
+      const shim = /\.(cmd|bat)$/i.test(exe)
+      const done = (_e: unknown, out: string | Buffer) => resolve(String(out ?? ''))
+      if (shim) execFile('cmd.exe', ['/d', '/s', '/c', `${quoteForCmd(exe)} --help`], { timeout: 15_000, windowsHide: true }, done)
+      else execFile(exe, ['--help'], { timeout: 15_000, windowsHide: true }, done)
+    })
+    modeCache.set(exe, hit)
+  }
+  return hit
+}
+
+/** Claude Code's --permission-mode for a choice; Auto falls back to Allow edits on a Claude Code too old to have it. */
+let autoBroken = false
+
+export async function permissionMode(exe: string, p: string | undefined): Promise<string> {
+  const choice: Permission = p && p in PERMISSIONS ? (p as Permission) : 'auto'
+  if (choice !== 'auto') return PERMISSIONS[choice]
+  return !autoBroken && /["']auto["']/.test(await helpOf(exe)) ? 'auto' : 'acceptEdits'
+}
+
 export interface RunOptions {
   exe: string
+  /** Claude Code's --permission-mode, from permissionMode() */
+  mode: string
+  /** set when this is a second go in a safer mode, on the same response */
+  again?: boolean
   prompt: string
   projects: Project[]
   site: Project | null
@@ -171,6 +240,26 @@ export interface RunOptions {
   files?: string[]
   /** project instructions and knowledge folders */
   knowledge?: { text: string; dirs: string[] }
+  /** the dashboard's GitHub token, handed to Claude so it can use GitHub like Claude on the web */
+  github?: { token: string | null; cli: boolean }
+}
+
+/**
+ * Claude's environment: the dashboard's GitHub token as GH_TOKEN (which the gh
+ * CLI and curl calls use) and as a last-resort git sign-in, so pushes work even
+ * where git has no saved login. A saved one (Git Credential Manager) still wins.
+ */
+function envFor(token: string | null | undefined): NodeJS.ProcessEnv {
+  if (!token) return process.env
+  const n = Number(process.env.GIT_CONFIG_COUNT) || 0
+  return {
+    ...process.env,
+    GH_TOKEN: token,
+    GITHUB_TOKEN: token,
+    GIT_CONFIG_COUNT: String(n + 1),
+    [`GIT_CONFIG_KEY_${n}`]: 'credential.https://github.com.helper',
+    [`GIT_CONFIG_VALUE_${n}`]: '!f() { test "$1" = get && echo username=x-access-token && echo "password=$GH_TOKEN"; }; f',
+  }
 }
 
 const running = new Set<ChildProcess>()
@@ -182,7 +271,7 @@ export function stopAll() {
 /** Run one Claude Code turn and stream ClaudeEvents to `res` as NDJSON. */
 export function runClaude(o: RunOptions, res: ServerResponse) {
   const send = (e: ClaudeEvent) => res.write(JSON.stringify(e) + '\n')
-  res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
+  if (!o.again) res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
 
   const work = o.folder && fs.existsSync(o.folder) ? o.folder : path.join(DATA_DIR, 'claude-workspace')
   fs.mkdirSync(work, { recursive: true })
@@ -195,9 +284,9 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   const earlier = !o.resume && o.history ? `\n\nEarlier in this conversation (on Dylan's other computer, so you can't see it in your own history):\n${o.history}` : ''
   const know = o.knowledge?.text ? `\n\n${o.knowledge.text}` : ''
   const system = path.join(DATA_DIR, `claude-context-${stamp}.md`)
-  fs.writeFileSync(system, `${contextFor(o.projects, o.site, o.folder)}${know}${earlier}`)
+  fs.writeFileSync(system, `${contextFor(o.projects, o.site, o.folder, o.github)}${know}${earlier}`)
 
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'default', '--settings', settings, '--append-system-prompt-file', system]
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', o.mode, '--settings', settings, '--append-system-prompt-file', system]
   const extra = [...new Set([...(o.files ?? []).map((f) => path.dirname(path.dirname(f))), ...(o.knowledge?.dirs ?? [])])].filter((d) => fs.existsSync(d))
   if (extra.length) args.push('--add-dir', ...extra)
   if (o.resume && UUID.test(o.resume)) args.push('--resume', o.resume)
@@ -214,8 +303,8 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   let child: ChildProcess
   try {
     child = shim
-      ? spawn([o.exe, ...args].map(quoteForCmd).join(' '), { cwd: work, shell: true, windowsHide: true })
-      : spawn(o.exe, args, { cwd: work, windowsHide: true })
+      ? spawn([o.exe, ...args].map(quoteForCmd).join(' '), { cwd: work, shell: true, windowsHide: true, env: envFor(o.github?.token) })
+      : spawn(o.exe, args, { cwd: work, windowsHide: true, env: envFor(o.github?.token) })
   } catch (e) {
     cleanup()
     send({ type: 'error', text: (e as Error).message })
@@ -243,7 +332,12 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   /** file-writing tool calls waiting for their result: tool_use id -> file */
   const writes = new Map<string, { file: string; action: 'created' | 'edited' }>()
   const sent = new Set<string>()
-  send({ type: 'start', session, folder: o.folder && fs.existsSync(o.folder) ? o.folder : '' })
+  /** Claude's task list as it plans and works: shown as a checklist while it runs */
+  let tasks: (Task & { id: string })[] = []
+  const sendTasks = () => send({ type: 'tasks', tasks: tasks.map(({ text, status, active }) => ({ text, status, active })) })
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+  const statusOf = (v: unknown): Task['status'] => (v === 'in_progress' || v === 'completed' ? v : 'pending')
+  if (!o.again) send({ type: 'start', session, folder: o.folder && fs.existsSync(o.folder) ? o.folder : '' })
 
   const finish = (e?: ClaudeEvent) => {
     if (finished) return
@@ -279,7 +373,25 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
       gap = true
     } else if (d.type === 'assistant') {
       for (const c of d.message?.content ?? []) {
-        if (c.type === 'tool_use') {
+        if (c.type === 'tool_use' && c.name === 'TodoWrite' && Array.isArray(c.input?.todos)) {
+          tasks = c.input.todos.flatMap((t: Record<string, unknown>, i: number) => (str(t.content) ? [{ id: String(i), text: str(t.content)!, status: statusOf(t.status), active: str(t.activeForm) }] : []))
+          sendTasks()
+        } else if (c.type === 'tool_use' && c.name === 'TaskCreate' && str(c.input?.subject)) {
+          // its number comes back in the tool's result; until then it goes by the call's id
+          tasks.push({ id: c.id, text: str(c.input.subject)!, status: 'pending', active: str(c.input.activeForm) })
+          sendTasks()
+        } else if (c.type === 'tool_use' && c.name === 'TaskUpdate') {
+          const t = tasks.find((x) => x.id === String(c.input?.taskId ?? ''))
+          if (t && c.input.status === 'deleted') tasks = tasks.filter((x) => x !== t)
+          else if (t) {
+            if (c.input.status) t.status = statusOf(c.input.status)
+            t.text = str(c.input.subject) ?? t.text
+            t.active = str(c.input.activeForm) ?? t.active
+          }
+          if (t) sendTasks()
+        } else if (c.type === 'tool_use' && /^Task(List|Get)$/.test(c.name)) {
+          // reading its own list: nothing to show
+        } else if (c.type === 'tool_use') {
           send({ type: 'tool', text: toolLine(c.name, c.input ?? {}) })
           const file = c.input?.file_path ?? c.input?.notebook_path
           if (typeof file === 'string' && /^(Write|Edit|MultiEdit|NotebookEdit)$/.test(c.name)) writes.set(c.id, { file: path.resolve(work, file), action: c.name === 'Write' && !fs.existsSync(path.resolve(work, file)) ? 'created' : 'edited' })
@@ -292,6 +404,12 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
     } else if (d.type === 'user') {
       // a file Claude wrote or edited: offer it to open or download
       for (const c of d.message?.content ?? []) {
+        const made = c.type === 'tool_result' ? tasks.find((t) => t.id === c.tool_use_id) : undefined
+        if (made) {
+          const said = typeof c.content === 'string' ? c.content : Array.isArray(c.content) ? c.content.map((x: { text?: string }) => x.text ?? '').join(' ') : ''
+          const n = /#?(\d+)/.exec(said)?.[1]
+          if (n) made.id = n
+        }
         const w = c.type === 'tool_result' && !c.is_error ? writes.get(c.tool_use_id) : undefined
         if (!w || sent.has(w.file)) continue
         sent.add(w.file)
@@ -318,6 +436,15 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   child.on('error', (e) => finish({ type: 'error', text: e.message }))
   child.on('close', (code) => {
     line(buf)
+    // auto mode isn't available on every plan or version: go again with Allow edits, which still asks before commands
+    if (code && o.mode === 'auto' && !wrote && !finished && /auto/i.test(errText)) {
+      finished = true
+      clearTimeout(limit)
+      running.delete(child)
+      cleanup()
+      autoBroken = true
+      return runClaude({ ...o, mode: 'acceptEdits', again: true }, res)
+    }
     if (code && code !== 0) finish({ type: 'error', text: friendly(errText) || `Claude Code stopped (exit ${code}).` })
     else finish()
   })
