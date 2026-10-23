@@ -9,15 +9,20 @@ import { storeBrief } from './shopify.ts'
 
 // The Claude bar: runs your own Claude Code (`claude -p`) in the selected
 // project's folder and streams what it says and does back to the dashboard as
-// NDJSON. Claude may read freely; anything that edits files or runs commands
-// is refused by Claude Code and comes back as an "ask", which the dashboard
-// turns into an Allow button. Allowing re-runs the same session with exactly
-// those actions permitted.
+// NDJSON. How much it may do without asking is the permission mode picked in
+// the dashboard: Auto (Claude Code's own auto mode, the same as Claude on the
+// web: it gets on with edits and commands and only stops for risky ones), Ask
+// first, Allow edits or Allow everything. Anything refused comes back as an
+// "ask", which the dashboard turns into an Allow button. Allowing re-runs the
+// same session with exactly those actions permitted.
 
 /** Read-only tools Claude can always use. Everything else needs an Allow. */
 const READ_ONLY = ['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'Bash(git status:*)', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git branch:*)', 'Bash(git show:*)']
 const RUN_LIMIT_MS = 15 * 60_000
 export const MODELS = ['fable', 'opus', 'sonnet', 'haiku'] as const
+/** the dashboard's permission choices, as Claude Code's --permission-mode values */
+export const PERMISSIONS = { auto: 'auto', ask: 'default', edits: 'acceptEdits', all: 'bypassPermissions' } as const
+export type Permission = keyof typeof PERMISSIONS
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -154,8 +159,38 @@ function toolLine(name: string, input: Record<string, unknown>) {
   }
 }
 
+const modeCache = new Map<string, Promise<string>>()
+
+/** The help text of this Claude Code, to see which permission modes it knows (auto came in 2026). */
+function helpOf(exe: string): Promise<string> {
+  let hit = modeCache.get(exe)
+  if (!hit) {
+    hit = new Promise((resolve) => {
+      const shim = /\.(cmd|bat)$/i.test(exe)
+      const done = (_e: unknown, out: string | Buffer) => resolve(String(out ?? ''))
+      if (shim) execFile('cmd.exe', ['/d', '/s', '/c', `${quoteForCmd(exe)} --help`], { timeout: 15_000, windowsHide: true }, done)
+      else execFile(exe, ['--help'], { timeout: 15_000, windowsHide: true }, done)
+    })
+    modeCache.set(exe, hit)
+  }
+  return hit
+}
+
+/** Claude Code's --permission-mode for a choice; Auto falls back to Allow edits on a Claude Code too old to have it. */
+let autoBroken = false
+
+export async function permissionMode(exe: string, p: string | undefined): Promise<string> {
+  const choice: Permission = p && p in PERMISSIONS ? (p as Permission) : 'auto'
+  if (choice !== 'auto') return PERMISSIONS[choice]
+  return !autoBroken && /["']auto["']/.test(await helpOf(exe)) ? 'auto' : 'acceptEdits'
+}
+
 export interface RunOptions {
   exe: string
+  /** Claude Code's --permission-mode, from permissionMode() */
+  mode: string
+  /** set when this is a second go in a safer mode, on the same response */
+  again?: boolean
   prompt: string
   projects: Project[]
   site: Project | null
@@ -182,7 +217,7 @@ export function stopAll() {
 /** Run one Claude Code turn and stream ClaudeEvents to `res` as NDJSON. */
 export function runClaude(o: RunOptions, res: ServerResponse) {
   const send = (e: ClaudeEvent) => res.write(JSON.stringify(e) + '\n')
-  res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
+  if (!o.again) res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
 
   const work = o.folder && fs.existsSync(o.folder) ? o.folder : path.join(DATA_DIR, 'claude-workspace')
   fs.mkdirSync(work, { recursive: true })
@@ -197,7 +232,7 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   const system = path.join(DATA_DIR, `claude-context-${stamp}.md`)
   fs.writeFileSync(system, `${contextFor(o.projects, o.site, o.folder)}${know}${earlier}`)
 
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'default', '--settings', settings, '--append-system-prompt-file', system]
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', o.mode, '--settings', settings, '--append-system-prompt-file', system]
   const extra = [...new Set([...(o.files ?? []).map((f) => path.dirname(path.dirname(f))), ...(o.knowledge?.dirs ?? [])])].filter((d) => fs.existsSync(d))
   if (extra.length) args.push('--add-dir', ...extra)
   if (o.resume && UUID.test(o.resume)) args.push('--resume', o.resume)
@@ -243,7 +278,7 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   /** file-writing tool calls waiting for their result: tool_use id -> file */
   const writes = new Map<string, { file: string; action: 'created' | 'edited' }>()
   const sent = new Set<string>()
-  send({ type: 'start', session, folder: o.folder && fs.existsSync(o.folder) ? o.folder : '' })
+  if (!o.again) send({ type: 'start', session, folder: o.folder && fs.existsSync(o.folder) ? o.folder : '' })
 
   const finish = (e?: ClaudeEvent) => {
     if (finished) return
@@ -318,6 +353,15 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   child.on('error', (e) => finish({ type: 'error', text: e.message }))
   child.on('close', (code) => {
     line(buf)
+    // auto mode isn't available on every plan or version: go again with Allow edits, which still asks before commands
+    if (code && o.mode === 'auto' && !wrote && !finished && /auto/i.test(errText)) {
+      finished = true
+      clearTimeout(limit)
+      running.delete(child)
+      cleanup()
+      autoBroken = true
+      return runClaude({ ...o, mode: 'acceptEdits', again: true }, res)
+    }
     if (code && code !== 0) finish({ type: 'error', text: friendly(errText) || `Claude Code stopped (exit ${code}).` })
     else finish()
   })

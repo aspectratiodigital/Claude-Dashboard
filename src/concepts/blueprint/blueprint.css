@@ -2478,3 +2478,6 @@ button.cl-group-head:hover {
 .cl-md a {
   text-underline-offset: 2px;
 }
+.cl-picker {
+  flex-wrap: wrap;
+}

@@ -107,6 +107,12 @@ export const MODELS = [
   { id: 'sonnet', label: 'Sonnet', note: 'Fast and capable' },
   { id: 'haiku', label: 'Haiku', note: 'Quickest' },
 ] as const
+export const PERMISSIONS = [
+  { id: 'auto', label: 'Auto', note: 'Like Claude on the web: gets on with edits and commands, and only asks before anything risky' },
+  { id: 'ask', label: 'Ask first', note: 'Asks before every edit or command' },
+  { id: 'edits', label: 'Allow edits', note: 'Edits files without asking, asks before commands' },
+  { id: 'all', label: 'Allow everything', note: 'Never asks. Only for projects you trust it with completely' },
+] as const
 export const EFFORTS = [
   { id: '', label: 'Default' },
   { id: 'low', label: 'Low' },
@@ -123,11 +129,14 @@ interface ClaudeState {
   link: ClaudeLink
   model: string
   effort: string
+  /** how much Claude may do without asking (see PERMISSIONS) */
+  permission: string
   /** the fullscreen workspace, and which project it's showing ("" = all) */
   full: boolean
   fullProject: string
   setModel: (m: string) => void
   setEffort: (e: string) => void
+  setPermission: (p: string) => void
   openFull: (projectId?: string | null) => void
   closeFull: () => void
   setFullProject: (id: string) => void
@@ -282,6 +291,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
           allow: allowed,
           model: get().model || undefined,
           effort: get().effort || undefined,
+          permission: get().permission,
           files: files?.length ? files : undefined,
         }),
         signal: ctl.signal,
@@ -343,6 +353,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
     link: 'checking',
     model: load('ard.claude.model'),
     effort: load('ard.claude.effort'),
+    permission: PERMISSIONS.some((x) => x.id === load('ard.claude.permission')) ? load('ard.claude.permission') : 'auto',
     full: false,
     fullProject: '',
     setModel: (model) => {
@@ -353,6 +364,11 @@ export const useClaude = create<ClaudeState>((set, get) => {
     setEffort: (effort) => {
       save('ard.claude.effort', effort)
       set({ effort })
+      pushPrefs()
+    },
+    setPermission: (permission) => {
+      save('ard.claude.permission', permission)
+      set({ permission })
       pushPrefs()
     },
     openFull: (projectId) => {
@@ -566,6 +582,7 @@ interface Prefs {
   cars?: boolean
   model?: string
   effort?: string
+  permission?: string
   at: number
 }
 
@@ -576,8 +593,8 @@ function pushPrefs() {
   if (applying || !useData.getState().api) return
   prefsAt = Date.now()
   save('ard.prefs.at', String(prefsAt))
-  const { model, effort } = useClaude.getState()
-  fetch('./api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: useApp.getState().theme, font: useApp.getState().font, cars: useApp.getState().cars, model, effort, at: prefsAt }) }).catch(() => {})
+  const { model, effort, permission } = useClaude.getState()
+  fetch('./api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: useApp.getState().theme, font: useApp.getState().font, cars: useApp.getState().cars, model, effort, permission, at: prefsAt }) }).catch(() => {})
 }
 
 function applyPrefs(p: Prefs) {
@@ -590,6 +607,7 @@ function applyPrefs(p: Prefs) {
   if (typeof p.cars === 'boolean') useApp.getState().setCars(p.cars)
   if (typeof p.model === 'string' && MODELS.some((m) => m.id === p.model)) useClaude.getState().setModel(p.model)
   if (typeof p.effort === 'string' && EFFORTS.some((m) => m.id === p.effort)) useClaude.getState().setEffort(p.effort)
+  if (typeof p.permission === 'string' && PERMISSIONS.some((m) => m.id === p.permission)) useClaude.getState().setPermission(p.permission)
   applying = false
 }
 

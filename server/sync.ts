@@ -26,6 +26,7 @@ export interface Prefs {
   cars?: boolean
   model?: string
   effort?: string
+  permission?: string
   at: number
 }
 

@@ -7,7 +7,7 @@ import { githubAuth, loadConfig, loadSettings, projectSettings, psiKey, saveSett
 import { GitHub, listRepos, loadChange, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
 import { scanLocalSessions, type LocalSession } from './claude.ts'
-import { ask, findClaude, runClaude, stopAll, titleFor } from './assistant.ts'
+import { ask, findClaude, permissionMode, runClaude, stopAll, titleFor } from './assistant.ts'
 import { changePrompt } from '../src/data/describe.ts'
 import { deleteConversation, host, listConversations, loadShared, oneDriveSuggestion, saveConversation, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
 import { blankStore, cleanDomain, loadCatalog, loadProduct, loadStore, type ShopifyCred } from './shopify.ts'
@@ -693,6 +693,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       return runClaude(
         {
           exe,
+          mode: await permissionMode(exe, typeof body.permission === 'string' ? body.permission : undefined),
           prompt,
           projects: engine.projects,
           site,
@@ -916,7 +917,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
     case 'POST /api/prefs': {
       const body = await readBody(req)
       const pick = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
-      savePrefs({ theme: pick('theme'), font: pick('font'), cars: typeof body.cars === 'boolean' ? body.cars : undefined, model: pick('model'), effort: pick('effort'), at: Number(body.at) || Date.now() })
+      savePrefs({ theme: pick('theme'), font: pick('font'), cars: typeof body.cars === 'boolean' ? body.cars : undefined, model: pick('model'), effort: pick('effort'), permission: pick('permission'), at: Number(body.at) || Date.now() })
       return json(res, 200, { ok: true })
     }
 

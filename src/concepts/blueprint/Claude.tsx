@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import type { Project } from '../../data/types'
 import { useData, useProject } from '../../data/store'
 import { STATUS_LABEL, relTime } from '../../data/derive'
-import { EFFORTS, MODELS, THREAD_STATES, cleanReply, convsFor, fileUrl, hasTalk, openFile, threadState, uploadFile, useClaude, type Attachment, type Conversation, type MadeFile, type ThreadState } from '../../shared/claude'
+import { EFFORTS, MODELS, PERMISSIONS, THREAD_STATES, cleanReply, convsFor, fileUrl, hasTalk, openFile, threadState, uploadFile, useClaude, type Attachment, type Conversation, type MadeFile, type ThreadState } from '../../shared/claude'
 import { KnowledgePanel, ToolsPanel, useExtras } from './ClaudeExtras'
 import { Icon } from '../../shared/icons'
 import { useApp } from '../../store'
@@ -221,6 +221,8 @@ export function ModelPicker() {
   const effort = useClaude((s) => s.effort)
   const setModel = useClaude((s) => s.setModel)
   const setEffort = useClaude((s) => s.setEffort)
+  const permission = useClaude((s) => s.permission)
+  const setPermission = useClaude((s) => s.setPermission)
   return (
     <div className="cl-picker">
       <label title={MODELS.find((m) => m.id === model)?.note}>
@@ -238,6 +240,16 @@ export function ModelPicker() {
         <select value={effort} onChange={(e) => setEffort(e.target.value)}>
           {EFFORTS.map((m) => (
             <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label title={PERMISSIONS.find((m) => m.id === permission)?.note}>
+        <span>Permissions</span>
+        <select value={permission} onChange={(e) => setPermission(e.target.value)}>
+          {PERMISSIONS.map((m) => (
+            <option key={m.id} value={m.id} title={m.note}>
               {m.label}
             </option>
           ))}
