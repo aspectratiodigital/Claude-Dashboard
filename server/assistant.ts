@@ -17,7 +17,7 @@ import { storeBrief } from './shopify.ts'
 // same session with exactly those actions permitted.
 
 /** Read-only tools Claude can always use. Everything else needs an Allow. */
-const READ_ONLY = ['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'Bash(git status:*)', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git branch:*)', 'Bash(git show:*)']
+const READ_ONLY = ['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'Bash(git status:*)', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git branch:*)', 'Bash(git show:*)']
 const RUN_LIMIT_MS = 15 * 60_000
 export const MODELS = ['fable', 'opus', 'sonnet', 'haiku'] as const
 /** the dashboard's permission choices, as Claude Code's --permission-mode values */
@@ -33,10 +33,19 @@ export interface Ask {
   what: string
 }
 
+/** one line of Claude's own task list (its TodoWrite / TaskCreate tools) */
+export interface Task {
+  text: string
+  status: 'pending' | 'in_progress' | 'completed'
+  /** how it reads while it's being done, e.g. "Running the tests" */
+  active?: string
+}
+
 export type ClaudeEvent =
   | { type: 'start'; session: string | null; folder: string }
   | { type: 'text'; text: string }
   | { type: 'tool'; text: string }
+  | { type: 'tasks'; tasks: Task[] }
   | { type: 'file'; path: string; name: string; action: 'created' | 'edited' }
   | { type: 'done'; session: string | null; asks: Ask[] }
   | { type: 'error'; text: string }
@@ -106,6 +115,7 @@ function contextFor(projects: Project[], site: Project | null, folder: string | 
     "[[status: resolved]] when what he asked for is finished and there's nothing left to do in this thread.",
     '',
     "When Dylan asks for a file (a document, image, export or code), write it into the working folder and mention its name: the dashboard shows each file you write with Open and Download buttons.",
+    "For work with three or more steps, start by setting out the plan with your task tool (TaskCreate, or TodoWrite) and mark each task in progress and done as you go: the dashboard shows it to Dylan as a checklist while you work. Anything you say between steps shows as a one-line status that's replaced by the next, so keep it to one short line, and save the detail for your final reply.",
     "If something you try is refused for permission, say in one line what you wanted to do and why. Dylan will see an Allow button for it.",
     '',
     'Current state of every project:',
@@ -278,6 +288,11 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   /** file-writing tool calls waiting for their result: tool_use id -> file */
   const writes = new Map<string, { file: string; action: 'created' | 'edited' }>()
   const sent = new Set<string>()
+  /** Claude's task list as it plans and works: shown as a checklist while it runs */
+  let tasks: (Task & { id: string })[] = []
+  const sendTasks = () => send({ type: 'tasks', tasks: tasks.map(({ text, status, active }) => ({ text, status, active })) })
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+  const statusOf = (v: unknown): Task['status'] => (v === 'in_progress' || v === 'completed' ? v : 'pending')
   if (!o.again) send({ type: 'start', session, folder: o.folder && fs.existsSync(o.folder) ? o.folder : '' })
 
   const finish = (e?: ClaudeEvent) => {
@@ -314,7 +329,25 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
       gap = true
     } else if (d.type === 'assistant') {
       for (const c of d.message?.content ?? []) {
-        if (c.type === 'tool_use') {
+        if (c.type === 'tool_use' && c.name === 'TodoWrite' && Array.isArray(c.input?.todos)) {
+          tasks = c.input.todos.flatMap((t: Record<string, unknown>, i: number) => (str(t.content) ? [{ id: String(i), text: str(t.content)!, status: statusOf(t.status), active: str(t.activeForm) }] : []))
+          sendTasks()
+        } else if (c.type === 'tool_use' && c.name === 'TaskCreate' && str(c.input?.subject)) {
+          // its number comes back in the tool's result; until then it goes by the call's id
+          tasks.push({ id: c.id, text: str(c.input.subject)!, status: 'pending', active: str(c.input.activeForm) })
+          sendTasks()
+        } else if (c.type === 'tool_use' && c.name === 'TaskUpdate') {
+          const t = tasks.find((x) => x.id === String(c.input?.taskId ?? ''))
+          if (t && c.input.status === 'deleted') tasks = tasks.filter((x) => x !== t)
+          else if (t) {
+            if (c.input.status) t.status = statusOf(c.input.status)
+            t.text = str(c.input.subject) ?? t.text
+            t.active = str(c.input.activeForm) ?? t.active
+          }
+          if (t) sendTasks()
+        } else if (c.type === 'tool_use' && /^Task(List|Get)$/.test(c.name)) {
+          // reading its own list: nothing to show
+        } else if (c.type === 'tool_use') {
           send({ type: 'tool', text: toolLine(c.name, c.input ?? {}) })
           const file = c.input?.file_path ?? c.input?.notebook_path
           if (typeof file === 'string' && /^(Write|Edit|MultiEdit|NotebookEdit)$/.test(c.name)) writes.set(c.id, { file: path.resolve(work, file), action: c.name === 'Write' && !fs.existsSync(path.resolve(work, file)) ? 'created' : 'edited' })
@@ -327,6 +360,12 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
     } else if (d.type === 'user') {
       // a file Claude wrote or edited: offer it to open or download
       for (const c of d.message?.content ?? []) {
+        const made = c.type === 'tool_result' ? tasks.find((t) => t.id === c.tool_use_id) : undefined
+        if (made) {
+          const said = typeof c.content === 'string' ? c.content : Array.isArray(c.content) ? c.content.map((x: { text?: string }) => x.text ?? '').join(' ') : ''
+          const n = /#?(\d+)/.exec(said)?.[1]
+          if (n) made.id = n
+        }
         const w = c.type === 'tool_result' && !c.is_error ? writes.get(c.tool_use_id) : undefined
         if (!w || sent.has(w.file)) continue
         sent.add(w.file)

@@ -37,13 +37,24 @@ export interface MadeFile {
   action: 'created' | 'edited'
 }
 
+export interface ClaudeTask {
+  text: string
+  status: 'pending' | 'in_progress' | 'completed'
+  /** how it reads while it's being done, e.g. "Running the tests" */
+  active?: string
+}
+
 export interface ChatMessage {
   id: number
   role: 'user' | 'claude'
   text: string
   streaming?: boolean
-  /** what Claude is doing right now, e.g. "Reading index.html" */
+  /** what Claude is doing right now, as one line, e.g. "Reading index.html" */
   doing?: string
+  /** what Claude said between steps while it worked, folded away under the reply */
+  steps?: string[]
+  /** Claude's plan while it works, shown as a checklist until it's done */
+  tasks?: ClaudeTask[]
   /** actions Claude wants permission for */
   asks?: Ask[]
   answered?: 'allowed' | 'declined'
@@ -91,6 +102,26 @@ export function threadState(c: Conversation): ThreadState {
 }
 
 // The status line Claude ends each reply with (server/assistant.ts asks for it). It is read, then hidden.
+/** The first line of what Claude said, as plain text, for the working line. */
+const oneLine = (t: string) =>
+  (t.split('\n').find((l) => l.trim()) ?? '')
+    .replace(/[*_`#>[\]]/g, '')
+    .replace(/^\s*([-+]|\d+\.)\s+/, '')
+    .trim()
+
+/** what a reply says when it's only asking for an Allow; once answered, the whole message goes */
+export const ASK_TEXT = 'I need your OK for this:'
+
+/**
+ * Claude moved on to a step: what it said before it ("Let me check the build")
+ * becomes the one working line and is folded away, rather than piling up in the
+ * reply, so only the answer stays.
+ */
+const stepped = (m: ChatMessage, doing: string | undefined): Partial<ChatMessage> => {
+  const said = cleanReply(m.text).trim()
+  return said ? { text: '', steps: [...(m.steps ?? []), said], doing: oneLine(said) || doing } : { doing }
+}
+
 const STATUS_LINE = /\s*\[\[\s*status:\s*(waiting|idle|resolved)\s*\]\]\s*$/i
 /** A reply without its status line (and, while it's still arriving, without a half-written one). */
 export const cleanReply = (text: string, streaming = false) => {
@@ -310,15 +341,29 @@ export const useClaude = create<ClaudeState>((set, get) => {
           buf = buf.slice(i + 1)
           if (!raw.trim()) continue
           const e = JSON.parse(raw)
-          if (e.type === 'text') patchMsg(convId, replyId, (m) => ({ text: m.text + e.text, doing: undefined }))
-          else if (e.type === 'tool') patchMsg(convId, replyId, () => ({ doing: e.text }))
+          if (e.type === 'text')
+            patchMsg(convId, replyId, (m) => {
+              const t = m.text ? e.text : e.text.replace(/^\s+/, '')
+              return t ? { text: m.text + t, doing: undefined } : {}
+            })
+          else if (e.type === 'tool') patchMsg(convId, replyId, (m) => stepped(m, e.text))
+          else if (e.type === 'tasks')
+            patchMsg(convId, replyId, (m) => {
+              const now = (e.tasks as ClaudeTask[]).find((t) => t.status === 'in_progress')
+              return { ...stepped(m, m.doing), tasks: e.tasks, ...(now && { doing: now.active || now.text }) }
+            })
           else if (e.type === 'file') patchMsg(convId, replyId, (m) => ({ files: [...(m.files ?? []).filter((f) => f.path !== e.path), { path: e.path, name: e.name, action: e.action }] }))
           else if (e.type === 'error') patchMsg(convId, replyId, (m) => ({ text: m.text ? `${m.text}\n\n${e.text}` : e.text, error: true }))
           else if (e.type === 'done') {
             if (e.session) patchConv(convId, () => ({ session: e.session, sessionHost: localHost || undefined, allowed }))
             const said = conv(convId)?.messages.find((m) => m.id === replyId)?.text ?? ''
             const status = (STATUS_LINE.exec(said)?.[1]?.toLowerCase() ?? 'idle') as Conversation['status']
-            patchMsg(convId, replyId, (m) => ({ streaming: false, doing: undefined, asks: e.asks?.length ? e.asks : undefined, text: cleanReply(m.text) || (e.asks?.length ? 'I need your OK for this:' : 'Done.') }))
+            patchMsg(convId, replyId, (m) => {
+              // the answer came before its last step: bring it back out
+              const steps = m.steps ?? []
+              const back = !cleanReply(m.text).trim() && !e.asks?.length && steps.length ? steps.at(-1)! : ''
+              return { streaming: false, doing: undefined, tasks: undefined, asks: e.asks?.length ? e.asks : undefined, steps: back ? steps.slice(0, -1) : m.steps, text: cleanReply(back || m.text) || (e.asks?.length ? ASK_TEXT : 'Done.') }
+            })
             patchConv(convId, () => ({ status: e.asks?.length ? 'waiting' : status }))
             name(convId)
           }
@@ -328,7 +373,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
       if ((err as Error).name !== 'AbortError') patchMsg(convId, replyId, (m) => ({ text: m.text || `I couldn't reach Claude Code: ${(err as Error).message}`, error: true }))
     } finally {
       aborts.delete(convId)
-      patchMsg(convId, replyId, (m) => ({ streaming: false, doing: undefined, text: cleanReply(m.text) }))
+      patchMsg(convId, replyId, (m) => ({ streaming: false, doing: undefined, tasks: undefined, text: cleanReply(m.text) }))
       patchConv(convId, () => ({ speaking: false }))
     }
   }
@@ -488,7 +533,7 @@ function persist(c: Conversation, remove = false) {
   if (!useData.getState().api) return
   window.clearTimeout(saveTimers.get(c.id))
   saveTimers.delete(c.id)
-  const conversation = { ...c, speaking: false, messages: c.messages.map((m) => ({ ...m, streaming: undefined, doing: undefined })) }
+  const conversation = { ...c, speaking: false, messages: c.messages.map((m) => ({ ...m, streaming: undefined, doing: undefined, tasks: undefined })) }
   fetch('./api/conversation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation, delete: remove || undefined }) }).catch(() => {})
 }
 
@@ -506,7 +551,7 @@ function transcript(c: Conversation) {
 const tidy = (c: Conversation): Conversation => ({
   ...c,
   speaking: false,
-  messages: c.messages.map((m) => (m.role === 'claude' && !m.text ? { ...m, text: '(Stopped when the app closed.)' } : { ...m, streaming: undefined, doing: undefined })),
+  messages: c.messages.map((m) => (m.role === 'claude' && !m.text ? { ...m, text: '(Stopped when the app closed.)' } : { ...m, streaming: undefined, doing: undefined, tasks: undefined })),
 })
 
 /** ids the local API has told us about, so a thread deleted on the other computer can be dropped here */

@@ -436,13 +436,6 @@
 .bp-notes-target select option {
   color: var(--option-fg);
 }
-.bp-doing {
-  font-size: 11px;
-  color: var(--line-2);
-}
-.bp-doing .bp-caret {
-  margin: 0 4px 0 0;
-}
 .bp-ask {
   margin-top: 6px;
   padding: 6px 8px;
@@ -2480,4 +2473,149 @@ button.cl-group-head:hover {
 }
 .cl-picker {
   flex-wrap: wrap;
+}
+
+/* the one working line at the bottom while Claude works, with a tiny crane */
+.cl-working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  width: fit-content;
+  margin: 8px 0 0;
+  padding: 3px 10px 3px 6px;
+  border: 1px dashed var(--line-3);
+  font-size: 11px;
+  color: var(--line-2);
+}
+.cl-working span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: cl-working-in 0.25s ease-out;
+}
+@keyframes cl-working-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.cl-crane {
+  flex: none;
+  overflow: visible;
+}
+.cl-crane-frame {
+  fill: none;
+  stroke: var(--line-2);
+  stroke-width: 1;
+  stroke-linecap: square;
+}
+.cl-crane-weight,
+.cl-crane-trolley rect {
+  fill: var(--line-2);
+}
+.cl-crane rect.cl-crane-block {
+  fill: var(--mark);
+}
+.cl-crane-trolley {
+  animation: cl-crane-move 4s ease-in-out infinite;
+}
+.cl-crane-cable {
+  transform-box: fill-box;
+  transform-origin: top;
+  animation: cl-crane-cable 4s ease-in-out infinite;
+}
+.cl-crane-block {
+  animation: cl-crane-lift 4s ease-in-out infinite;
+}
+/* down at the left, lift, across, lower (drop it off), lift it again, back, lower */
+@keyframes cl-crane-move {
+  0%, 15% { transform: translateX(0); }
+  35%, 65% { transform: translateX(14px); }
+  85%, 100% { transform: translateX(0); }
+}
+@keyframes cl-crane-cable {
+  0%, 5% { transform: scaleY(1); }
+  15%, 35% { transform: scaleY(0.3); }
+  45%, 55% { transform: scaleY(1); }
+  65%, 85% { transform: scaleY(0.3); }
+  95%, 100% { transform: scaleY(1); }
+}
+@keyframes cl-crane-lift {
+  0%, 5% { transform: translateY(0); }
+  15%, 35% { transform: translateY(-6.65px); }
+  45%, 55% { transform: translateY(0); }
+  65%, 85% { transform: translateY(-6.65px); }
+  95%, 100% { transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cl-crane * {
+    animation: none !important;
+  }
+}
+.cl-steps ol {
+  margin: 6px 0 0;
+  padding: 0 0 0 18px;
+  max-height: 260px;
+  overflow: auto;
+  color: var(--line-2);
+}
+.cl-steps li {
+  padding: 2px 0;
+}
+.cl-steps li p {
+  margin: 0;
+}
+/* Claude's plan while it works, like a checklist */
+.cl-tasks {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line-3);
+  font-size: 11.5px;
+}
+.cl-tasks small {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--line-2);
+}
+.cl-tasks ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.cl-tasks li {
+  display: flex;
+  gap: 8px;
+  color: var(--line-2);
+}
+.cl-tasks li i {
+  flex: none;
+  width: 12px;
+  font-style: normal;
+  text-align: center;
+}
+.cl-tasks li[data-status='in_progress'] {
+  color: var(--ink);
+}
+.cl-tasks li[data-status='in_progress'] i {
+  color: var(--mark);
+  animation: bp-blink 1.2s steps(2) infinite;
+}
+.cl-tasks li[data-status='completed'] span {
+  text-decoration: line-through;
+  text-decoration-color: var(--line-3);
+}
+/* a long command reads on two lines at most; hover for the rest */
+.bp-ask li {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
 }
