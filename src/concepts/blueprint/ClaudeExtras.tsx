@@ -188,13 +188,25 @@ export function ToolsPanel({ projectId, onClose }: { projectId: string | null; o
   const match = (e: Extra) => !q || `${e.name} ${e.description}`.toLowerCase().includes(q.toLowerCase())
   const skills = data?.items.filter((i) => i.kind === 'skill' && match(i)) ?? []
   const commands = data?.items.filter((i) => i.kind === 'command' && match(i)) ?? []
+  const remove = async (e: Extra) => {
+    if (!window.confirm(`Remove the skill “${e.name}” from ${e.source === 'Project' ? 'this project' : 'Claude Code on this computer'}?`)) return
+    const r = await fetch('./api/claude/skill/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: e.name, scope: e.source === 'Project' ? 'project' : 'you', project: projectId }) })
+    const d = await r.json().catch(() => ({}))
+    setMsg(r.ok ? `Removed ${e.name}.` : (d.error ?? 'That didn’t work'))
+    reload()
+  }
   const row = (e: Extra) => (
-    <li key={e.name}>
+    <li key={e.name} className="cl-extra-row">
       <button onClick={() => insertIntoComposer(`/${e.name} `)} title="Use it in your next message">
         <b>/{e.name}</b>
         <em>{e.source}</em>
         {e.description && <span>{e.description}</span>}
       </button>
+      {e.kind === 'skill' && (e.source === 'You' || e.source === 'Project') && (
+        <button className="cl-del-inline" onClick={() => remove(e)} aria-label={`Remove ${e.name}`} title="Remove this skill">
+          ✕
+        </button>
+      )}
     </li>
   )
   return (
@@ -216,6 +228,13 @@ export function ToolsPanel({ projectId, onClose }: { projectId: string | null; o
           <h4>Skills ({skills.length})</h4>
           <ul className="cl-extras">{skills.map(row)}</ul>
           {!skills.length && <p className="bp-help">No skills found in ~/.claude/skills or your plugins.</p>}
+          <AddSkill
+            projectId={projectId}
+            onAdded={(m) => {
+              setMsg(m)
+              reload()
+            }}
+          />
           {commands.length > 0 && (
             <>
               <h4>Commands ({commands.length})</h4>
@@ -266,5 +285,99 @@ export function ToolsPanel({ projectId, onClose }: { projectId: string | null; o
         </p>
       )}
     </aside>
+  )
+}
+
+/** Add a skill to Claude Code: upload a SKILL.md, .zip or .skill, or write one here. */
+function AddSkill({ projectId, onAdded }: { projectId: string | null; onAdded: (msg: string) => void }) {
+  const [mode, setMode] = useState<'closed' | 'write'>('closed')
+  const [scope, setScope] = useState<'you' | 'project'>('you')
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [body, setBody] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const pick = useRef<HTMLInputElement>(null)
+  const where = `scope=${scope}&project=${encodeURIComponent(projectId ?? '')}`
+  const done = async (r: Response) => {
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(d.error ?? 'That didn’t work')
+    onAdded(`Added the skill “${d.name}”${scope === 'project' ? ' to this project' : ''}. Claude can use it from the next message.`)
+  }
+  const run = async (job: () => Promise<void>) => {
+    setBusy(true)
+    setError('')
+    try {
+      await job()
+      return true
+    } catch (e) {
+      setError((e as Error).message)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+  const upload = (files: FileList | null) =>
+    run(async () => {
+      for (const f of files ?? []) await done(await fetch(`./api/claude/skill?${where}&file=${encodeURIComponent(f.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f }))
+    })
+  const write = async () => {
+    const ok = await run(async () => done(await fetch(`./api/claude/skill?${where}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, description, body }) })))
+    if (ok) {
+      setMode('closed')
+      setName('')
+      setDescription('')
+      setBody('')
+    }
+  }
+  return (
+    <section className="cl-addskill">
+      <div className="bp-actions">
+        <button className="bp-open" onClick={() => pick.current?.click()} disabled={busy}>
+          Upload a skill <span>SKILL.md, .zip or .skill</span>
+        </button>
+        <button className="bp-link" onClick={() => setMode(mode === 'write' ? 'closed' : 'write')}>
+          {mode === 'write' ? 'Cancel' : 'Write one'}
+        </button>
+        <input ref={pick} type="file" accept=".md,.zip,.skill" multiple hidden onChange={(e) => upload(e.target.files).then(() => (e.target.value = ''))} />
+      </div>
+      {projectId && (
+        <div className="bp-seg" role="group" aria-label="Where the skill goes">
+          <button aria-pressed={scope === 'you'} onClick={() => setScope('you')}>
+            All my projects
+          </button>
+          <button aria-pressed={scope === 'project'} onClick={() => setScope('project')}>
+            This project only
+          </button>
+        </div>
+      )}
+      {mode === 'write' && (
+        <>
+          <label className="cl-field">
+            <span>Name</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="brand-voice" />
+          </label>
+          <label className="cl-field">
+            <span>When to use it</span>
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Use when writing copy for Aspect Ratio Digital clients" />
+          </label>
+          <label className="cl-field">
+            <span>Instructions</span>
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={7} placeholder="What Claude should do, step by step, in Markdown." />
+          </label>
+          <div className="bp-actions">
+            <button className="bp-open" onClick={write} disabled={busy || !name.trim() || !description.trim() || !body.trim()}>
+              Save the skill
+            </button>
+          </div>
+        </>
+      )}
+      {error && (
+        <p className="bp-help" role="alert">
+          {error}
+        </p>
+      )}
+      <p className="bp-help">{scope === 'project' ? 'Saved in the project’s .claude/skills folder, so it travels with the repo.' : 'Saved in ~/.claude/skills on this computer, for every project.'}</p>
+    </section>
   )
 }

@@ -97,6 +97,22 @@ export function NotesDrawer() {
   const test = useData((s) => s.test)
   const [filter, setFilter] = useState<Filter>('all')
   const [target, setTarget] = useState('')
+  const [testOpen, setTestOpen] = useState(() => {
+    try {
+      return localStorage.getItem('ard.noteTest') !== 'closed'
+    } catch {
+      return true
+    }
+  })
+  const toggleTest = () =>
+    setTestOpen((v) => {
+      try {
+        localStorage.setItem('ard.noteTest', v ? 'closed' : 'open')
+      } catch {
+        /* private window */
+      }
+      return !v
+    })
   const kinds = FILTERS.find((f) => f.id === filter)!.kinds
   const list = useMemo(() => notes.filter((n) => !kinds || kinds.includes(n.kind)), [notes, kinds])
   const groups = useMemo(() => {
@@ -176,24 +192,33 @@ export function NotesDrawer() {
         )}
         {!list.length && <p className="drawer-empty">Nothing yet. Builds, deploys, issues and Claude's work will show up here as they happen.</p>}
       </div>
-      <footer className="drawer-test">
-        <h3>Preview a notification</h3>
-        <p>Fire any kind at a project to see how the dashboard shows it.</p>
-        <select value={projectId} onChange={(e) => setTarget(e.target.value)} aria-label="Project">
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <div className="drawer-kinds">
-          {ALL_KINDS.map((k) => (
-            <button key={k} onClick={() => projectId && test(projectId, k)} title={KIND_LABEL[k]}>
-              <KindIcon kind={k} size={15} />
-              <span>{KIND_LABEL[k]}</span>
-            </button>
-          ))}
-        </div>
+      <footer className="drawer-test" data-open={testOpen}>
+        <button className="drawer-test-head" onClick={toggleTest} aria-expanded={testOpen} title={testOpen ? 'Shrink' : 'Expand'}>
+          <h3>Preview a notification</h3>
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+            <path d="M2 4.5 6 8.5 10 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+          </svg>
+        </button>
+        {testOpen && (
+          <>
+            <p>Fire any kind at a project to see how the dashboard shows it.</p>
+            <select value={projectId} onChange={(e) => setTarget(e.target.value)} aria-label="Project">
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <div className="drawer-kinds">
+              {ALL_KINDS.map((k) => (
+                <button key={k} onClick={() => projectId && test(projectId, k)} title={KIND_LABEL[k]}>
+                  <KindIcon kind={k} size={15} />
+                  <span>{KIND_LABEL[k]}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </footer>
     </aside>
   )

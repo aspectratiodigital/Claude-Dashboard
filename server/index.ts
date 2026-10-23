@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
-import type { Change, Health, Note, NoteKind, Page, Project, Quality, Snapshot, Status, Store, Thread } from '../src/data/types.ts'
+import type { AppMap, Change, Health, Note, NoteKind, Page, Project, Quality, Snapshot, Status, Store, Thread } from '../src/data/types.ts'
 import { githubAuth, loadConfig, loadSettings, projectSettings, psiKey, saveSettings, type Config } from './config.ts'
 import { GitHub, listRepos, loadChange, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
@@ -13,7 +13,10 @@ import { deleteConversation, host, listConversations, loadShared, oneDriveSugges
 import { blankStore, cleanDomain, loadCatalog, loadProduct, loadStore, type ShopifyCred } from './shopify.ts'
 import { MAX_UPLOAD, UPLOADS, WORKSPACE, openOnDesktop, opensSafely, readRaw, saveUpload, sendFile, uploadPath, within } from './files.ts'
 import { addKnowledgeFile, knowledgeDir, knowledgeFor, readKnowledge, removeKnowledgeFile, saveInstructions } from './knowledge.ts'
-import { addSuggested, listExtras } from './extras.ts'
+import { addSuggested, listExtras, removeSkill, saveSkill, skillsDir, writtenSkill } from './extras.ts'
+import { unzip } from './zip.ts'
+import { appRootOf, assetBytes, imagesOf, loadAppMap } from './appmap.ts'
+import { appShot } from './shots.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
@@ -25,6 +28,7 @@ import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyNam
 const STATE_FILE = path.join(DATA_DIR, 'state.json')
 const NOTES_FILE = path.join(DATA_DIR, 'notes.json')
 const CHANGES_FILE = path.join(DATA_DIR, 'changes.json')
+const APPS_FILE = path.join(DATA_DIR, 'apps.json')
 const MIN = 60_000
 
 interface Persisted {
@@ -71,6 +75,26 @@ class Engine {
   }
   psiAt = new Map<string, number>()
   sessions: LocalSession[] = []
+  /** each app's floors, by project id; read again when its default branch moves */
+  appMaps = new Map<string, AppMap>(Object.entries(readJson<Record<string, AppMap>>(APPS_FILE, {})))
+  appBusy = new Set<string>()
+
+  /** An app's floors: the saved map, re-read in the background when the branch has moved on. */
+  appFor(id: string, repo: RepoInfo, d: RepoData): AppMap | null {
+    const have = this.appMaps.get(id) ?? null
+    if (!d.treeSha || have?.sha === d.treeSha || this.appBusy.has(id) || !this.gh) return have
+    this.appBusy.add(id)
+    loadAppMap(this.gh, repo, d.paths, d.treeSha, appRootOf(d.paths))
+      .then((m) => {
+        this.appMaps.set(id, m)
+        writeJson(APPS_FILE, Object.fromEntries(this.appMaps))
+        this.rebuild()
+      })
+      .catch((e) => log('app map', repo.full, (e as Error).message))
+      .finally(() => this.appBusy.delete(id))
+    return have
+  }
+
   /** Shopify stores read with the Admin API, by domain */
   stores = new Map<string, Store>()
   storeAt = new Map<string, number>()
@@ -94,6 +118,9 @@ class Engine {
       for (const [k, v] of Object.entries(saved.health ?? {})) this.health.set(k, v)
       for (const [k, v] of Object.entries(saved.pages ?? {})) this.sitePages.set(k, v)
       this.projects = saved.projects ?? []
+      // last-read stores, so a store saved on this computer shows as connected straight away after a restart
+      const tokens = loadSettings().shopifyTokens ?? {}
+      for (const p of this.projects) if (p.store?.connected && tokens[p.store.domain]) this.stores.set(p.store.domain, p.store)
     }
     this.notes = readJson<Note[]>(NOTES_FILE, [])
     this.sessions = safe(() => scanLocalSessions(), [])
@@ -105,6 +132,7 @@ class Engine {
     this.timers.push(setInterval(() => this.ping(), 25_000))
     this.timers.push(setInterval(() => this.shops().catch((e) => log('shop checks failed', e)), 30_000))
     setTimeout(() => this.sites().catch(() => {}), 4000)
+    setTimeout(() => this.shops(true).catch(() => {}), 3000)
   }
 
   stop() {
@@ -218,7 +246,14 @@ class Engine {
         const { domain, headless } = p.store!
         if (!force && Date.now() - (this.storeAt.get(domain) ?? 0) < 2 * MIN) return
         this.storeAt.set(domain, Date.now())
-        this.stores.set(domain, await loadStore(domain, tokens[domain]!, headless))
+        const next = await loadStore(domain, tokens[domain]!, headless)
+        const last = this.stores.get(domain)
+        // a dropped connection (the laptop just woke, say) keeps the last good read and tries again in 30 seconds
+        if (!next.connected && last?.connected && /^Couldn't reach/.test(next.error ?? '')) {
+          this.storeAt.set(domain, Date.now() - 2 * MIN + 30_000)
+          return
+        }
+        this.stores.set(domain, next)
       })
     if (!jobs.length) return
     await pool(jobs, 3)
@@ -292,7 +327,10 @@ class Engine {
     const { status, reason } = statusOf(d, health, repo.defaultBranch, threads)
     const pages = this.pages(id, d)
     const shop = this.storeOf(repo, d)
-    const store = shop ? { ...(this.stores.get(shop.domain) ?? blankStore(shop.domain, shop.headless)), headless: shop.headless } : null
+    const linked = !!shop?.domain && !!loadSettings().shopifyTokens?.[shop.domain]
+    const store = shop ? { ...(this.stores.get(shop.domain) ?? blankStore(shop.domain, shop.headless)), headless: shop.headless, linked } : null
+    const kind = o.kind ?? (appRootOf(d.paths ?? []) !== null ? 'app' : 'site')
+    const app = kind === 'app' ? this.appFor(id, repo, d) : null
     const theme = health.themeColor && /^#[0-9a-f]{6}$/i.test(health.themeColor) && !/^#(f{6}|0{6})$/i.test(health.themeColor) ? health.themeColor : null
     return {
       id,
@@ -325,6 +363,8 @@ class Engine {
       health,
       quality: qualityOf(d, health),
       store,
+      kind,
+      app,
     }
   }
 
@@ -710,6 +750,42 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       return json(res, 200, listExtras(p ? engine.folderFor(p) : null))
     }
 
+    case 'POST /api/claude/skill': {
+      // add a skill: a SKILL.md, a .zip / .skill (raw body, ?file=name), or one written here (JSON)
+      if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
+      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
+      const folder = url.searchParams.get('scope') === 'project' ? (p ? engine.folderFor(p) : null) : null
+      if (url.searchParams.get('scope') === 'project' && !folder) return json(res, 400, { error: 'Set this project’s folder in Settings first' })
+      const dir = skillsDir(folder)
+      const file = url.searchParams.get('file')
+      try {
+        let saved: ReturnType<typeof saveSkill>
+        if (file) {
+          const data = await readRaw(req, MAX_UPLOAD)
+          if (!data) return json(res, 413, { error: 'Skills can be up to 25 MB' })
+          const zipped = /\.(zip|skill)$/i.test(file) || data.subarray(0, 2).toString() === 'PK'
+          saved = saveSkill(dir, zipped ? unzip(data) : [{ name: 'SKILL.md', data }], file.replace(/\.[^.]+$/, '').replace(/^SKILL$/i, ''))
+        } else {
+          const body = await readBody(req, 400_000)
+          const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+          if (!str(body.name) || !str(body.description) || !str(body.body)) return json(res, 400, { error: 'Give the skill a name, a description and instructions' })
+          saved = saveSkill(dir, [{ name: 'SKILL.md', data: Buffer.from(writtenSkill(str(body.name), str(body.description), str(body.body))) }], str(body.name))
+        }
+        return saved.ok ? json(res, 200, { ok: true, name: saved.name, where: path.join(dir, saved.name) }) : json(res, 400, { error: saved.error })
+      } catch (e) {
+        return json(res, 400, { error: (e as Error).message })
+      }
+    }
+
+    case 'POST /api/claude/skill/remove': {
+      if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
+      const body = await readBody(req)
+      const p = engine.projects.find((x) => x.id === body.project)
+      const folder = body.scope === 'project' ? (p ? engine.folderFor(p) : null) : null
+      if (body.scope === 'project' && !folder) return json(res, 400, { error: 'No folder for this project' })
+      return removeSkill(skillsDir(folder), String(body.name ?? '')) ? json(res, 200, { ok: true }) : json(res, 404, { error: 'No skill by that name' })
+    }
+
     case 'POST /api/claude/mcp': {
       const body = await readBody(req)
       const exe = await findClaude(loadSettings().claudePath)
@@ -737,6 +813,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       saveSettings(patch)
       if (patch.syncDir) seedSyncFolder()
       if (patch.projects) saveSharedProjects(patch.projects)
+      engine.cfg = loadConfig()
+      engine.rebuild()
       setTimeout(() => engine.tick(true).catch(() => {}), 50)
       return json(res, 200, { ok: true })
     }
@@ -775,6 +853,34 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       engine.cfg = loadConfig()
       engine.rebuild()
       return json(res, 200, { ok: true, domain })
+    }
+
+    case 'GET /api/app/asset': {
+      // an image from an app's repo, as the floors show it
+      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
+      const file = url.searchParams.get('path') ?? ''
+      if (!p?.app || !imagesOf(p.app).has(file)) return json(res, 404, { error: 'not an image this app shows' })
+      const buf = await assetBytes(engine.gh?.token ?? null, p.repo, p.app.sha, file)
+      if (!buf) return json(res, 502, { error: 'Couldn’t fetch that image from GitHub' })
+      res.statusCode = 200
+      res.setHeader('Content-Type', /\.svg$/i.test(file) ? 'image/svg+xml' : /\.png$/i.test(file) ? 'image/png' : /\.webp$/i.test(file) ? 'image/webp' : /\.gif$/i.test(file) ? 'image/gif' : 'image/jpeg')
+      res.setHeader('Cache-Control', 'max-age=86400')
+      if (/\.svg$/i.test(file)) res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
+      return res.end(buf)
+    }
+
+    case 'GET /api/app/shot': {
+      // a screenshot of the app's live web build, opened on one skin or game mode
+      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
+      const q = url.searchParams.get('q') ?? ''
+      if (!p?.app || !p.app.floors.some((f) => f.galleries.some((g) => g.items.some((i) => i.shot === q)))) return json(res, 404, { error: 'not a screen this app shows' })
+      if (!p.url) return json(res, 404, { error: 'Add the app’s web address in Settings to see screenshots' })
+      const shot = await appShot(`${p.url.replace(/\/?$/, '/')}?${q}`, `${p.app.sha}${url.searchParams.get('fresh') ? Date.now() : ''}`)
+      if ('error' in shot) return json(res, 502, shot)
+      res.statusCode = 200
+      res.setHeader('Content-Type', 'image/jpeg')
+      res.setHeader('Cache-Control', 'no-cache')
+      return res.end(shot.jpg)
     }
 
     case 'POST /api/notes/read': {

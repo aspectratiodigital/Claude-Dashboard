@@ -157,6 +157,9 @@ export interface RepoData {
   branchPushed: Record<string, string>
   /** a Shopify store this site is built on, found in the code */
   shopify: ShopifyFound | null
+  /** every file in the default branch, and the commit it was read at */
+  paths: string[]
+  treeSha: string | null
 }
 
 export interface ShopifyFound {
@@ -317,10 +320,16 @@ export async function loadRepo(gh: GitHub, repo: RepoInfo, opts: { light?: boole
 
   // pages from the repo tree, refreshed only when the default branch moves
   let repoPages = prev?.repoPages ?? []
+  let paths = prev?.paths ?? []
+  let treeSha = prev?.treeSha ?? null
   const head = rawCommits[0]?.sha
-  if (head && (!prev || prev.commits[0]?.sha !== head.slice(0, 7) || !repoPages.length)) {
+  if (head && (!prev || prev.commits[0]?.sha !== head.slice(0, 7) || !repoPages.length || treeSha !== head)) {
     const t = await gh.get<Json>(`${base}/git/trees/${head}?recursive=1`)
-    if (t.data?.tree) repoPages = pagesFromTree(t.data.tree.map((x: Json) => String(x.path)), framework)
+    if (t.data?.tree) {
+      paths = t.data.tree.filter((x: Json) => x.type === 'blob').map((x: Json) => String(x.path))
+      treeSha = head
+      repoPages = pagesFromTree(paths, framework)
+    }
   }
 
   // Shopify, from package.json and the example env file, again only when the branch moves
@@ -355,6 +364,8 @@ export async function loadRepo(gh: GitHub, repo: RepoInfo, opts: { light?: boole
     claudeProjectUrl,
     branchPushed,
     shopify,
+    paths,
+    treeSha,
   }
 }
 

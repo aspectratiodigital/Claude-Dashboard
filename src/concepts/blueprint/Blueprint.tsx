@@ -3,7 +3,7 @@ import { BlueprintScene, LETTERS, useLots, type Lot } from './Scene'
 import { PART_NAME, useBp } from './state'
 import type { Project, Thread } from '../../data/types'
 import { useData, useProject } from '../../data/store'
-import { STATUS_LABEL, domainOf, fmtDur, fmtMs, relTime, signals, threadsByPush } from '../../data/derive'
+import { STATUS_LABEL, domainOf, floorsIn, fmtDur, fmtMs, relTime, signals, threadsByPush } from '../../data/derive'
 import { useChange } from '../../data/change'
 import { useApp } from '../../store'
 import { useClaude, convsFor, hasTalk } from '../../shared/claude'
@@ -15,6 +15,7 @@ import { SceneCanvas } from '../../shared/SceneCanvas'
 import { NoteChip } from '../../shared/pulse'
 import { ChecksList, Links, PageDetail, Score, ThreadItem } from '../../shared/sheet'
 import { StoreConnect, StorePanel, storeLine } from './Store'
+import { AppFloorView } from './AppFloors'
 import './blueprint.css'
 
 const ROWS = ['1', '2', '3', '4', '5']
@@ -38,14 +39,14 @@ export default function Blueprint() {
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest('input, textarea, select') || useApp.getState().stage) return
+      if ((e.target as HTMLElement).closest('input, textarea, select') || useApp.getState().stage || document.querySelector('.ap-box')) return
       if (e.key === 'q' || e.key === 'Q') rotate(-1)
       if (e.key === 'e' || e.key === 'E') rotate(1)
       if (e.key === 'Enter' && useApp.getState().selectedId) useBp.getState().setDissect(true)
     }
     // Escape closes the section first, then the selection (capture so it runs before the app's handler)
     const esc = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || useApp.getState().stage || useApp.getState().settingsOpen || useApp.getState().notesOpen) return
+      if (e.key !== 'Escape' || useApp.getState().stage || useApp.getState().settingsOpen || useApp.getState().notesOpen || document.querySelector('.ap-box')) return
       if (useClaude.getState().full) {
         e.stopImmediatePropagation()
         useClaude.getState().closeFull()
@@ -164,6 +165,9 @@ function PartLabels({ id }: { id: string }) {
     ['roof', 'Roof · site speed', p.health.ms === null ? 'not checked' : `${fmtMs(p.health.ms)}${p.health.uptimePct !== null ? ` · ${p.health.uptimePct.toFixed(1)}% up` : ''}`],
     ['sign', 'Sign · SEO', p.health.seoScore === null ? 'not checked' : `${p.health.seoScore}/100`],
     ...Array.from({ length: lot }, (_, j): [string, string, string] => {
+      const floor = p.kind === 'app' ? p.app?.floors[j] : undefined
+      const more = floorsIn(p) - lot
+      if (floor) return [`floor:${j}`, `Floor ${j + 1}${j === 0 ? ' · home' : ''}`, j === lot - 1 && more > 0 ? `${floor.name}, +${more} more` : floor.name]
       const page = p.pages[j]
       return [`floor:${j}`, `Floor ${j + 1} · ${page?.path ?? '/'}`, page?.title ?? (j === lot - 1 && p.pages.length > lot ? `+${p.pages.length - lot} more pages` : 'page')]
     }),
@@ -194,7 +198,7 @@ function PartLabels({ id }: { id: string }) {
   )
 }
 
-const floorsOf = (p: Project) => Math.max(1, Math.min(10, p.pages.length || 1))
+const floorsOf = (p: Project) => Math.max(1, Math.min(10, floorsIn(p) || 1))
 
 function Legend() {
   return (
@@ -205,7 +209,7 @@ function Legend() {
           <svg width="26" height="20" viewBox="0 0 26 20" aria-hidden>
             <path d="M4 18V8h8v10M4 13h8M4 8l4-3 4 3" fill="none" stroke="currentColor" />
           </svg>
-          One floor per page; huts are Claude threads
+          One floor per page (or per game mode, for an app); huts are Claude threads
         </li>
         <li>
           <svg width="26" height="20" viewBox="0 0 26 20" aria-hidden>
@@ -326,9 +330,19 @@ function Overview({ project: p, floors, onOpen, onClaude }: { project: Project; 
             </td>
           </tr>
           <tr>
+            <th>Type</th>
+            <td>
+              <KindToggle project={p} />
+            </td>
+          </tr>
+          <tr>
             <th>Floors</th>
             <td>
-              {floors} of {p.pages.length || 1} page{p.pages.length === 1 ? '' : 's'}
+              {p.kind === 'app'
+                ? p.app
+                  ? `${floors} of ${p.app.floors.length}: the home screen and ${p.app.floors.length - 1} game mode${p.app.floors.length === 2 ? '' : 's'} or screens`
+                  : 'reading the app’s game modes…'
+                : `${floors} of ${p.pages.length || 1} page${p.pages.length === 1 ? '' : 's'}`}
             </td>
           </tr>
           <tr>
@@ -368,6 +382,33 @@ function Overview({ project: p, floors, onOpen, onClaude }: { project: Project; 
   )
 }
 
+/** Website or app: an app's floors are its game modes and screens instead of its pages. */
+function KindToggle({ project: p }: { project: Project }) {
+  const mode = useData((s) => s.mode)
+  const [saving, setSaving] = useState<string | null>(null)
+  const kind = p.kind ?? 'site'
+  const set = async (k: 'site' | 'app') => {
+    if (k === kind || mode !== 'live') return
+    setSaving(k)
+    await fetch('./api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projects: { [p.repo.split('/').pop()!]: { kind: k } } }) }).catch(() => {})
+    setSaving(null)
+  }
+  return (
+    <span className="bp-seg" role="group" aria-label="Website or app">
+      {(
+        [
+          ['site', 'Website'],
+          ['app', 'App'],
+        ] as const
+      ).map(([k, label]) => (
+        <button key={k} aria-pressed={(saving ?? kind) === k} onClick={() => set(k)} disabled={mode !== 'live'} title={mode !== 'live' ? 'Connect GitHub in Settings first' : undefined}>
+          {label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
 function AttachStore({ project: p }: { project: Project }) {
   const [open, setOpen] = useState(false)
   return (
@@ -386,7 +427,7 @@ function Section({ project: p }: { project: Project }) {
   const groups: [string, string][] = [
     ['roof', 'Site speed'],
     ['sign', 'SEO'],
-    ['floor:0', `Pages (${p.pages.length})`],
+    ['floor:0', p.kind === 'app' ? `Floors (${p.app?.floors.length ?? 0})` : `Pages (${p.pages.length})`],
     ['hut:0', `Threads (${p.threads.length})`],
     ['foundation', 'Build quality'],
     ...(p.store ? [['store', 'Store'] as [string, string]] : []),
@@ -396,18 +437,18 @@ function Section({ project: p }: { project: Project }) {
     <div className="bp-section">
       <nav className="bp-parts" aria-label="Parts of the building">
         {groups.map(([k, label]) => (
-          <button key={k} aria-pressed={groupOf(part) === k} onClick={() => setPart(k)} disabled={(k === 'hut:0' && !p.threads.length) || (k === 'floor:0' && !p.pages.length)}>
+          <button key={k} aria-pressed={groupOf(part) === k} onClick={() => setPart(k)} disabled={(k === 'hut:0' && !p.threads.length) || (k === 'floor:0' && !floorsIn(p))}>
             {label}
           </button>
         ))}
       </nav>
       <div className="bp-scroll" key={part}>
-        <h3>{part.startsWith('floor:') ? `Floor ${Number(part.slice(6)) + 1}: a page of the site` : part.startsWith('hut:') ? (part === 'hut:0' ? 'Latest push: a Claude thread' : `Hut ${Number(part.slice(4)) + 1}: a Claude thread`) : PART_NAME[part]}</h3>
+        <h3>{part.startsWith('floor:') ? (p.kind === 'app' ? `Floor ${Number(part.slice(6)) + 1}: ${p.app?.floors[Number(part.slice(6))]?.name ?? 'the app'}` : `Floor ${Number(part.slice(6)) + 1}: a page of the site`) : part.startsWith('hut:') ? (part === 'hut:0' ? 'Latest push: a Claude thread' : `Hut ${Number(part.slice(4)) + 1}: a Claude thread`) : PART_NAME[part]}</h3>
         {part === 'roof' && <Speed project={p} />}
         {part === 'sign' && <Seo project={p} />}
         {part === 'foundation' && <Build project={p} />}
         {part === 'store' && <StorePanel project={p} />}
-        {part.startsWith('floor:') && <Floors project={p} index={Number(part.slice(6))} />}
+        {part.startsWith('floor:') && (p.kind === 'app' ? <AppFloorView project={p} index={Number(part.slice(6))} /> : <Floors project={p} index={Number(part.slice(6))} />)}
         {part.startsWith('hut:') && <Huts project={p} index={Number(part.slice(4))} />}
       </div>
     </div>

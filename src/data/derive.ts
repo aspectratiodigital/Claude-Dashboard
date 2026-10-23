@@ -151,3 +151,6 @@ export function mean(xs: (number | null | undefined)[]) {
 
 /** A project's Claude threads, newest push first (threads that never pushed go by last activity). */
 export const threadsByPush = (p: Project) => [...p.threads].sort((a, b) => (b.pushed ?? b.updated).localeCompare(a.pushed ?? a.updated))
+
+/** An app's building has a floor per game mode or screen; a website's, one per page. */
+export const floorsIn = (p: Project) => (p.kind === 'app' && p.app?.floors.length ? p.app.floors.length : p.pages.length)

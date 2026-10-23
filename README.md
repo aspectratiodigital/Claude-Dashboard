@@ -123,7 +123,19 @@ Click a building to select it. Click it again (or press `Enter`) to **open it up
 
 The huts are stacked newest push first, so the top one (labelled **Latest push**) is the most recent work on that site. Click a hut to see **What changed**: a short plain-English description of what that push does to the site, written by your Claude Code (with its quickest model) the first time you open it and kept after that. Without Claude Code it shows the pull request's own summary instead.
 
-**Themes:** Settings, then **Appearance**, switches between Blueprint, Light (off-white with near-black lines) and Dark (off-black with soft white lines).
+**Themes:** Settings, then **Appearance**, switches between Blueprint, Light (off-white with near-black lines) and Dark (off-black with soft white lines). In the desktop app the window's title bar follows: white on Light, black on Dark, and Windows' own colour on Blueprint.
+
+### Apps
+
+Each building's details have a **Type** switch: **Website** or **App**. A repo with an Expo / React Native, Capacitor or Flutter app in it starts as an app; anything else starts as a website. An app's floors are its **home screen** (floor 1) and then one floor per **game mode**, instead of one per page. Open the building and pick a floor to see what's on it as pictures:
+
+- **App skins:** the home screen in each skin, screenshotted from the live web build (`?skin=` links), and on each game's floor that game in every skin (`?game=…&skin=…`).
+- **Card skins:** each deck's back and its full sheet of faces.
+- **Other images:** the textures, labels and icons in the app's assets folder.
+
+Click any of them to see it full screen. Use the arrows (or `←` `→`) to go through the rest, **Open it live** to play with the real screen, and `Esc` to close.
+
+It's read from the code on GitHub each time the default branch moves: a `games` / `modes` file (`{ id, title, tagline }` entries) gives the floors, a `skins` / `themes` file the skins, and a `packs` / `decks` file the card designs, matched to images by name. An app laid out differently can describe its floors in a `blueprint.app.json` instead (`{ "floors": [{ "name", "galleries": [{ "name", "items": [{ "name", "images": [{ "path" }] }] }] }] }`). Screenshots need the app's web address (Settings, or the repo's website). The desktop app takes them itself; in the browser version they use Edge or Chrome on this computer.
 
 ![A building opened up](docs/screenshots/blueprint-dissect.jpg)
 
@@ -140,7 +152,7 @@ To see the numbers, connect the store once, from the **Store** tab:
 - **Dev Dashboard app (new stores):** in the [Shopify Dev Dashboard](https://dev.shopify.com/dashboard), create an app, give its version the `read_orders`, `read_products` and `read_inventory` scopes, install it on the store, and paste its **Client ID** and **Client secret**. This works for stores in your own Shopify organisation.
 - **Admin API token (older stores):** if a store already has a custom app made in its admin, paste its `shpat_…` token instead. Shopify no longer lets you create new ones there.
 
-Either is kept in this computer's settings only. It isn't synced to your other computer, shown in the browser or passed to Claude. The dashboard checks each connected store every 2 minutes.
+Either is kept in this computer's settings only. It isn't synced to your other computer, shown in the browser or passed to Claude. Once connected, a store stays connected on that computer: closing and reopening the app shows its last numbers straight away and refreshes them within a few seconds. The dashboard checks each connected store every 2 minutes.
 
 ## Claude bar
 
@@ -159,6 +171,7 @@ Conversations are kept between launches (in the app's data folder, newest 300), 
 - **Replies** are formatted (lists, tables, code). Hover one for **Copy**, and **Retry** asks again for the last reply.
 - **Instructions & files** (fullscreen, top right) works like a Claude project: instructions Claude follows in every thread about that site, plus files it can read, such as a brand guide or price list. With **All projects** selected they're your instructions for everything. They live in the sync folder when you've set one, so both computers share them.
 - **Skills & tools** (fullscreen) lists the skills, plugins, slash commands and MCP servers your Claude Code already has, including skills synced from your Claude account and ones in a project's `.claude` folder. Claude uses skills by itself when they fit. To use one on purpose, type `/` in the message box and pick it, or click it in the list. It also offers to add the Shopify Dev MCP, which gives Claude Shopify's docs and API schemas for Hydrogen work.
+- **Add a skill** from the same drawer: **Upload a skill** takes a `SKILL.md`, or a `.zip` / `.skill` with a skill folder in it (the kind you download from claude.ai), and **Write one** makes a new skill from a name, when to use it, and its instructions. Pick **All my projects** (saved in `~/.claude/skills`) or **This project only** (saved in the project's `.claude/skills`, so it goes in the repo). The ✕ next to one of your skills removes it.
 
 ### Laptop and PC sharing the same chats
 
@@ -183,7 +196,7 @@ Open a project and you get a large desktop preview and a phone preview side by s
 
 ## Notifications
 
-Changes are spotted as the data refreshes (about once a minute) and appear in three places at once: a toast at the top, the bell's history drawer (press `N`), and an effect on that building. The drawer has a **Preview a notification** panel so you can fire any kind on any project and see how it looks.
+Changes are spotted as the data refreshes (about once a minute) and appear in three places at once: a toast at the top, the bell's history drawer (press `N`), and an effect on that building. The drawer has a **Preview a notification** panel so you can fire any kind on any project and see how it looks. Click its heading to shrink it down out of the way, and again to bring it back.
 
 The kinds: build started, passed or failed; deploying, deployed or deploy failed; new issue; pull request opened, review requested or merged; push; Claude started working; site down or back up; site slower than usual.
 

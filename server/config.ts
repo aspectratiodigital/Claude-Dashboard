@@ -17,6 +17,8 @@ export interface ProjectOverride {
   hidden?: boolean
   /** the site's Shopify store (xxx.myshopify.com), when the code doesn't name it */
   shopify?: string
+  /** website or app, when set on the building */
+  kind?: 'site' | 'app'
 }
 
 export interface Config {
