@@ -102,9 +102,10 @@ function Ground({ ping }: { ping: MutableRefObject<{ at: number; color: THREE.Co
   )
 }
 
-/** Roads between the lots with little request "cars" running on them. */
+/** Roads between the lots, with little request "cars" running on them unless they're turned off. */
 function Roads({ lots }: { lots: Lot[] }) {
   const pal = usePalette()
+  const showCars = useApp((s) => s.cars)
   const { xs, zs, spanX, spanZ } = useMemo(() => {
     const cx = [...new Set(lots.map((l) => l.x))].sort((a, b) => a - b)
     const cz = [...new Set(lots.map((l) => l.z))].sort((a, b) => a - b)
@@ -123,6 +124,17 @@ function Roads({ lots }: { lots: Lot[] }) {
     l.raycast = noRay
     return l
   }, [xs, zs, spanX, spanZ, pal])
+  return (
+    <group>
+      <primitive object={lines} />
+      {showCars && <Cars xs={xs} zs={zs} spanX={spanX} spanZ={spanZ} />}
+    </group>
+  )
+}
+
+/** The cars: a box each, looping along the roads. */
+function Cars({ xs, zs, spanX, spanZ }: { xs: number[]; zs: number[]; spanX: number[]; spanZ: number[] }) {
+  const pal = usePalette()
   const cars = useRef<THREE.InstancedMesh>(null!)
   const n = 60
   const seeds = useMemo(
@@ -154,13 +166,10 @@ function Roads({ lots }: { lots: Lot[] }) {
     cars.current.instanceMatrix.needsUpdate = true
   })
   return (
-    <group>
-      <primitive object={lines} />
-      <instancedMesh ref={cars} args={[undefined, undefined, n]} raycast={noRay}>
-        <boxGeometry />
-        <meshBasicMaterial color={pal.mark} toneMapped={false} />
-      </instancedMesh>
-    </group>
+    <instancedMesh ref={cars} args={[undefined, undefined, n]} raycast={noRay}>
+      <boxGeometry />
+      <meshBasicMaterial color={pal.mark} toneMapped={false} />
+    </instancedMesh>
   )
 }
 

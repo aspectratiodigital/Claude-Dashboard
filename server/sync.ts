@@ -22,6 +22,8 @@ export interface StoredConversation {
 
 export interface Prefs {
   theme?: string
+  font?: string
+  cars?: boolean
   model?: string
   effort?: string
   at: number
