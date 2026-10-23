@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { getProject, useData } from '../data/store'
 import { STATUS_LABEL } from '../data/derive'
-import { useApp, type Theme } from '../store'
+import { FONTS, useApp, type Font, type Theme } from '../store'
 
 // Claude inside the dashboard. With the local API running and Claude Code
 // installed, each message runs your own Claude Code in the project's folder
@@ -506,10 +506,12 @@ function pull(first: boolean) {
     .finally(() => (pulling = false))
 }
 
-// --- Shared preferences: theme, model and effort follow you between computers -------------------
+// --- Shared preferences: theme, font, cars, model and effort follow you between computers -------------------
 
 interface Prefs {
   theme?: string
+  font?: string
+  cars?: boolean
   model?: string
   effort?: string
   at: number
@@ -523,7 +525,7 @@ function pushPrefs() {
   prefsAt = Date.now()
   save('ard.prefs.at', String(prefsAt))
   const { model, effort } = useClaude.getState()
-  fetch('./api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: useApp.getState().theme, model, effort, at: prefsAt }) }).catch(() => {})
+  fetch('./api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: useApp.getState().theme, font: useApp.getState().font, cars: useApp.getState().cars, model, effort, at: prefsAt }) }).catch(() => {})
 }
 
 function applyPrefs(p: Prefs) {
@@ -532,13 +534,15 @@ function applyPrefs(p: Prefs) {
   prefsAt = p.at
   save('ard.prefs.at', String(prefsAt))
   if (p.theme && ['blueprint', 'light', 'dark'].includes(p.theme)) useApp.getState().setTheme(p.theme as Theme)
+  if (p.font && FONTS.some((f) => f.id === p.font)) useApp.getState().setFont(p.font as Font)
+  if (typeof p.cars === 'boolean') useApp.getState().setCars(p.cars)
   if (typeof p.model === 'string' && MODELS.some((m) => m.id === p.model)) useClaude.getState().setModel(p.model)
   if (typeof p.effort === 'string' && EFFORTS.some((m) => m.id === p.effort)) useClaude.getState().setEffort(p.effort)
   applying = false
 }
 
 useApp.subscribe((s, prev) => {
-  if (s.theme !== prev.theme) pushPrefs()
+  if (s.theme !== prev.theme || s.font !== prev.font || s.cars !== prev.cars) pushPrefs()
 })
 
 // save a conversation a moment after it changes, once someone has written in it

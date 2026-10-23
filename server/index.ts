@@ -801,7 +801,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
     case 'POST /api/prefs': {
       const body = await readBody(req)
       const pick = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
-      savePrefs({ theme: pick('theme'), model: pick('model'), effort: pick('effort'), at: Number(body.at) || Date.now() })
+      savePrefs({ theme: pick('theme'), font: pick('font'), cars: typeof body.cars === 'boolean' ? body.cars : undefined, model: pick('model'), effort: pick('effort'), at: Number(body.at) || Date.now() })
       return json(res, 200, { ok: true })
     }
 

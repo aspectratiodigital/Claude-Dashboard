@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { useApp } from './store'
+import { useEffect, type CSSProperties } from 'react'
+import { FONTS, useApp } from './store'
 import { useData } from './data/store'
 import Blueprint from './concepts/blueprint/Blueprint'
 import { CommandPalette } from './shared/CommandPalette'
@@ -16,6 +16,8 @@ export default function App() {
   const toggleFps = useApp((s) => s.toggleFps)
   const selectedId = useApp((s) => s.selectedId)
   const theme = useApp((s) => s.theme)
+  const fontId = useApp((s) => s.font)
+  const font = FONTS.find((f) => f.id === fontId) ?? FONTS[0]
   useTier()
 
   useEffect(() => {
@@ -43,7 +45,7 @@ export default function App() {
   }, [setPalette, toggleFps])
 
   return (
-    <div className="app" data-selected={!!selectedId} data-theme={theme}>
+    <div className="app" data-selected={!!selectedId} data-theme={theme} style={{ '--ui-font': font.text, '--ui-display': font.display } as CSSProperties}>
       <Blueprint />
 
       <Tray />

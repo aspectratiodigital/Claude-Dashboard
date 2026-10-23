@@ -72,9 +72,11 @@ export default function Blueprint() {
         flat
         onPointerDown={(e) => (downAt.current = { x: e.clientX, y: e.clientY })}
         onPointerMissed={(e) => {
-          // a click on empty ground clears the selection; a drag (pan) doesn't
+          // a click on empty ground closes an opened building, or else clears the selection; a drag (pan) doesn't
           const moved = Math.hypot(e.clientX - downAt.current.x, e.clientY - downAt.current.y)
-          if (e.button === 0 && moved < 6 && !useBp.getState().dissect) useApp.getState().select(null)
+          if (e.button !== 0 || moved >= 6) return
+          if (useBp.getState().dissect) useBp.getState().setDissect(false)
+          else useApp.getState().select(null)
         }}
       >
         <BlueprintScene turn={turn} />

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useData } from '../data/store'
-import { useApp, type Quality, type Theme } from '../store'
+import { FONTS, useApp, type Quality, type Theme } from '../store'
 import { detectTier, resolveTier, TIERS } from './quality'
 import { Icon } from './icons'
 import { syncNow } from './claude'
 
-// Settings: connect GitHub, per-project URLs and ports, rendering quality.
+// Settings: connect GitHub, per-project URLs and ports, theme, font, rendering quality.
 // Secrets go to the local API, which keeps them in .jarvis/settings.json on
 // this computer (that folder is gitignored).
 
@@ -39,6 +39,10 @@ export function Settings() {
   const setOpen = useApp((s) => s.setSettings)
   const theme = useApp((s) => s.theme)
   const setTheme = useApp((s) => s.setTheme)
+  const font = useApp((s) => s.font)
+  const setFont = useApp((s) => s.setFont)
+  const cars = useApp((s) => s.cars)
+  const setCars = useApp((s) => s.setCars)
   const quality = useApp((s) => s.quality)
   const setQuality = useApp((s) => s.setQuality)
   const showFps = useApp((s) => s.showFps)
@@ -261,6 +265,17 @@ export function Settings() {
                 </button>
               ))}
             </div>
+            <div className="settings-quality settings-font" role="radiogroup" aria-label="Font">
+              {FONTS.map((f) => (
+                <button key={f.id} role="radio" aria-checked={font === f.id} onClick={() => setFont(f.id)}>
+                  <b style={{ fontFamily: f.display }}>{f.label}</b>
+                  <small style={{ fontFamily: f.text }}>{f.note}</small>
+                </button>
+              ))}
+            </div>
+            <label className="settings-check">
+              <input type="checkbox" checked={cars} onChange={(e) => setCars(e.target.checked)} /> Moving cars on the roads
+            </label>
           </section>
 
           <section>

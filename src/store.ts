@@ -4,6 +4,17 @@ export type Device = 'desktop' | 'mobile'
 export type Source = 'live' | 'preview' | 'local'
 export type Quality = 'auto' | 'high' | 'balanced' | 'battery'
 export type Theme = 'blueprint' | 'light' | 'dark'
+export type Font = 'blueprint' | 'jetbrains' | 'grotesk' | 'inter' | 'hud' | 'system'
+
+/** UI fonts for Settings > Appearance: body text and headings (code stays monospace). */
+export const FONTS: { id: Font; label: string; note: string; text: string; display: string }[] = [
+  { id: 'blueprint', label: 'IBM Plex Mono', note: 'The original, Archivo headings', text: "'IBM Plex Mono', monospace", display: "'Archivo', sans-serif" },
+  { id: 'jetbrains', label: 'JetBrains Mono', note: "A coder's monospace", text: "'JetBrains Mono', monospace", display: "'JetBrains Mono', monospace" },
+  { id: 'grotesk', label: 'Space Grotesk', note: 'Clean and a little techy', text: "'Space Grotesk', sans-serif", display: "'Space Grotesk', sans-serif" },
+  { id: 'inter', label: 'Inter', note: 'Plain and easy to read', text: "'Inter', sans-serif", display: "'Inter', sans-serif" },
+  { id: 'hud', label: 'HUD', note: 'Rajdhani, Orbitron headings', text: "'Rajdhani', sans-serif", display: "'Orbitron', sans-serif" },
+  { id: 'system', label: 'System', note: 'Segoe UI, like Windows', text: "'Segoe UI', system-ui, sans-serif", display: "'Segoe UI', system-ui, sans-serif" },
+]
 
 export interface StageState {
   projectId: string
@@ -21,6 +32,9 @@ interface State {
   showFps: boolean
   quality: Quality
   theme: Theme
+  font: Font
+  /** the little cars running on the roads */
+  cars: boolean
   /** fullscreen preview of a site */
   stage: StageState | null
   select: (id: string | null) => void
@@ -31,6 +45,8 @@ interface State {
   toggleFps: () => void
   setQuality: (q: Quality) => void
   setTheme: (t: Theme) => void
+  setFont: (f: Font) => void
+  setCars: (on: boolean) => void
   openStage: (s: StageState) => void
   closeStage: () => void
 }
@@ -61,6 +77,8 @@ export const useApp = create<State>((set) => ({
   showFps: false,
   quality: load<Quality>('ard.quality', (v) => ['auto', 'high', 'balanced', 'battery'].includes(v), 'auto'),
   theme: load<Theme>('ard.theme', (v) => ['blueprint', 'light', 'dark'].includes(v), 'blueprint'),
+  font: load<Font>('ard.font', (v) => FONTS.some((f) => f.id === v), 'blueprint'),
+  cars: load<'on' | 'off'>('ard.cars', (v) => v === 'on' || v === 'off', 'on') === 'on',
   stage: null,
   select: (selectedId) => set({ selectedId }),
   hover: (hoveredId) => set({ hoveredId }),
@@ -75,6 +93,14 @@ export const useApp = create<State>((set) => ({
   setTheme: (theme) => {
     save('ard.theme', theme)
     set({ theme })
+  },
+  setFont: (font) => {
+    save('ard.font', font)
+    set({ font })
+  },
+  setCars: (cars) => {
+    save('ard.cars', cars ? 'on' : 'off')
+    set({ cars })
   },
   openStage: (stage) => set({ stage }),
   closeStage: () => set({ stage: null }),
