@@ -97,7 +97,26 @@ function brief(p: Project) {
     .join('\n')
 }
 
-function contextFor(projects: Project[], site: Project | null, folder: string | null) {
+function githubNote(github: RunOptions['github']) {
+  const lines = [
+    '',
+    "Working on Dylan's repos: you can do everything Claude on the web can. Edit, build and test in the project's folder, and use git to commit, branch and push (pushes use this computer's git sign-in).",
+  ]
+  if (github?.token) {
+    lines.push(
+      github.cli
+        ? 'GitHub: the gh CLI is installed and GH_TOKEN is set, so use gh for pull requests, issues, reviews, Actions runs and their logs (e.g. `gh run view <id> --log-failed`, `gh pr create`).'
+        : 'GitHub: GH_TOKEN is set in your environment, but the gh CLI isn\'t installed, so use the REST API with curl: `curl -sL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/OWNER/REPO/...` (a failed job\'s log is at `/actions/jobs/JOB_ID/logs`, its runs at `/actions/runs`). If Dylan would like it simpler, he can install the CLI with `winget install GitHub.cli`.',
+      "If GitHub refuses a change with 403, the token is read-only: tell Dylan to open Settings, click **create a read-and-write token** under Your projects, and paste the new one in (or run `gh auth login` if the GitHub CLI is installed).",
+    )
+  } else lines.push("GitHub: there's no GitHub token on this computer, so you can't reach GitHub's API (pull requests, Actions logs). Tell Dylan to connect GitHub in Settings.")
+  lines.push(
+    'For code changes, work like Claude on the web: make a branch named after the change, commit with a clear message, push, and open a pull request with a title that says what changed. Give Dylan the link and merge only when he says so. Never push straight to the default branch unless he asks.',
+  )
+  return lines
+}
+
+function contextFor(projects: Project[], site: Project | null, folder: string | null, github?: RunOptions['github']) {
   const lines = [
     "You're the assistant inside Dylan's Blueprint dashboard for his web studio, Aspect Ratio Digital. It shows his sites, pulled live from GitHub.",
     '',
@@ -117,13 +136,18 @@ function contextFor(projects: Project[], site: Project | null, folder: string | 
     "When Dylan asks for a file (a document, image, export or code), write it into the working folder and mention its name: the dashboard shows each file you write with Open and Download buttons.",
     "For work with three or more steps, start by setting out the plan with your task tool (TaskCreate, or TodoWrite) and mark each task in progress and done as you go: the dashboard shows it to Dylan as a checklist while you work. Anything you say between steps shows as a one-line status that's replaced by the next, so keep it to one short line, and save the detail for your final reply.",
     "If something you try is refused for permission, say in one line what you wanted to do and why. Dylan will see an Allow button for it.",
+    ...githubNote(github),
     '',
     'Current state of every project:',
     ...projects.map(brief),
   ]
   if (site) {
     lines.push('', `Dylan has ${site.name} (${site.repo}) open.`)
-    lines.push(folder ? `You're working in its local folder: ${folder}` : `There's no local copy of ${site.repo} on this computer yet. You can still answer from the state above.`)
+    lines.push(
+      folder
+        ? `You're working in its local folder: ${folder}`
+        : `There's no local copy of ${site.repo} on this computer yet. You can answer from the state above, and if the work needs its code, clone it into your working folder (\`git clone https://github.com/${site.repo}.git\`) and work in that: the dashboard uses that copy from then on.`,
+    )
     const runs = site.runs.slice(0, 3).map((r) => `${r.name} on ${r.branch}: ${r.status} (${r.url})`)
     if (runs.length) lines.push(`Recent CI runs: ${runs.join('; ')}`)
     if (site.store && site.store.headless && site.store.headless !== 'Liquid theme')
@@ -216,6 +240,26 @@ export interface RunOptions {
   files?: string[]
   /** project instructions and knowledge folders */
   knowledge?: { text: string; dirs: string[] }
+  /** the dashboard's GitHub token, handed to Claude so it can use GitHub like Claude on the web */
+  github?: { token: string | null; cli: boolean }
+}
+
+/**
+ * Claude's environment: the dashboard's GitHub token as GH_TOKEN (which the gh
+ * CLI and curl calls use) and as a last-resort git sign-in, so pushes work even
+ * where git has no saved login. A saved one (Git Credential Manager) still wins.
+ */
+function envFor(token: string | null | undefined): NodeJS.ProcessEnv {
+  if (!token) return process.env
+  const n = Number(process.env.GIT_CONFIG_COUNT) || 0
+  return {
+    ...process.env,
+    GH_TOKEN: token,
+    GITHUB_TOKEN: token,
+    GIT_CONFIG_COUNT: String(n + 1),
+    [`GIT_CONFIG_KEY_${n}`]: 'credential.https://github.com.helper',
+    [`GIT_CONFIG_VALUE_${n}`]: '!f() { test "$1" = get && echo username=x-access-token && echo "password=$GH_TOKEN"; }; f',
+  }
 }
 
 const running = new Set<ChildProcess>()
@@ -240,7 +284,7 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   const earlier = !o.resume && o.history ? `\n\nEarlier in this conversation (on Dylan's other computer, so you can't see it in your own history):\n${o.history}` : ''
   const know = o.knowledge?.text ? `\n\n${o.knowledge.text}` : ''
   const system = path.join(DATA_DIR, `claude-context-${stamp}.md`)
-  fs.writeFileSync(system, `${contextFor(o.projects, o.site, o.folder)}${know}${earlier}`)
+  fs.writeFileSync(system, `${contextFor(o.projects, o.site, o.folder, o.github)}${know}${earlier}`)
 
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', o.mode, '--settings', settings, '--append-system-prompt-file', system]
   const extra = [...new Set([...(o.files ?? []).map((f) => path.dirname(path.dirname(f))), ...(o.knowledge?.dirs ?? [])])].filter((d) => fs.existsSync(d))
@@ -259,8 +303,8 @@ export function runClaude(o: RunOptions, res: ServerResponse) {
   let child: ChildProcess
   try {
     child = shim
-      ? spawn([o.exe, ...args].map(quoteForCmd).join(' '), { cwd: work, shell: true, windowsHide: true })
-      : spawn(o.exe, args, { cwd: work, windowsHide: true })
+      ? spawn([o.exe, ...args].map(quoteForCmd).join(' '), { cwd: work, shell: true, windowsHide: true, env: envFor(o.github?.token) })
+      : spawn(o.exe, args, { cwd: work, windowsHide: true, env: envFor(o.github?.token) })
   } catch (e) {
     cleanup()
     send({ type: 'error', text: (e as Error).message })

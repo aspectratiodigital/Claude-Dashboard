@@ -22,6 +22,8 @@ interface Remote {
 }
 
 const PERMS = ['contents', 'metadata', 'pull_requests', 'issues', 'actions', 'deployments', 'statuses'].map((p) => `${p}=read`).join('&')
+/** what Claude in the app needs to push, open pull requests and re-run builds, like Claude on the web */
+const WRITE_PERMS = [...['contents', 'pull_requests', 'issues', 'actions', 'workflows'].map((p) => `${p}=write`), ...['metadata', 'deployments', 'statuses'].map((p) => `${p}=read`)].join('&')
 
 const THEMES: [Theme, string, string][] = [
   ['blueprint', 'Blueprint', 'Drafting blue with yellow marks'],
@@ -29,8 +31,9 @@ const THEMES: [Theme, string, string][] = [
   ['dark', 'Dark', 'Off-black with soft white lines'],
 ]
 
-export function tokenLink(owner: string) {
-  const q = `name=Jarvis+Dashboard&description=${encodeURIComponent('Read-only access for the Aspect Ratio Digital dashboard')}&target_name=${encodeURIComponent(owner)}&expires_in=366&${PERMS}`
+export function tokenLink(owner: string, write = false) {
+  const what = write ? 'Read and write access for the Aspect Ratio Digital dashboard and its Claude' : 'Read-only access for the Aspect Ratio Digital dashboard'
+  const q = `name=${write ? 'Blueprint+and+Claude' : 'Jarvis+Dashboard'}&description=${encodeURIComponent(what)}&target_name=${encodeURIComponent(owner)}&expires_in=366&${write ? WRITE_PERMS : PERMS}`
   return `https://github.com/settings/personal-access-tokens/new?${q}`
 }
 
@@ -153,7 +156,11 @@ export function Settings() {
                     <a href={tokenLink(owner || setup?.owner || 'aspectratiodigital')} target="_blank" rel="noreferrer">
                       Create a read-only GitHub token <Icon.external size={12} />
                     </a>{' '}
-                    (the permissions are filled in for you).
+                    (the permissions are filled in for you). For Claude in the app to push, open pull requests and re-run builds the way Claude on the web does,{' '}
+                    <a href={tokenLink(owner || setup?.owner || 'aspectratiodigital', true)} target="_blank" rel="noreferrer">
+                      create a read-and-write token <Icon.external size={12} />
+                    </a>{' '}
+                    instead.
                   </li>
                   <li>
                     Under <b>Repository access</b>, choose <b>All repositories</b>, then generate it.

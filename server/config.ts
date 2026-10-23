@@ -105,7 +105,7 @@ export function saveSettings(patch: Settings) {
 let ghCache: { token: string | null; at: number } | null = null
 
 /** GitHub CLI fallback: if `gh` is installed and signed in, borrow its token. */
-function ghToken(): Promise<string | null> {
+export function ghToken(): Promise<string | null> {
   if (ghCache && Date.now() - ghCache.at < 10 * 60_000) return Promise.resolve(ghCache.token)
   return new Promise((resolve) => {
     execFile('gh', ['auth', 'token'], { timeout: 4000, windowsHide: true }, (err, out) => {
@@ -114,6 +114,13 @@ function ghToken(): Promise<string | null> {
       resolve(token)
     })
   })
+}
+
+let ghHere: Promise<boolean> | null = null
+/** Whether the GitHub CLI is installed here, so Claude can use it for pull requests and Actions logs. */
+export function ghInstalled(): Promise<boolean> {
+  ghHere ??= new Promise((resolve) => execFile('gh', ['--version'], { timeout: 4000, windowsHide: true }, (err) => resolve(!err)))
+  return ghHere
 }
 
 export async function githubAuth(): Promise<{ token: string | null; source: 'token' | 'gh' | 'none' }> {
