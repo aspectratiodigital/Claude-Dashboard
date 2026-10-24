@@ -10,7 +10,9 @@ taskkill /IM "ARD Blueprint.exe" /F >nul 2>&1
 
 echo.
 echo Getting the latest changes...
-git pull || goto :fail
+git fetch origin || goto :fail
+git checkout main || goto :fail
+git pull --ff-only || goto :fail
 
 echo.
 echo Installing packages...
