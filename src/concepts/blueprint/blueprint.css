@@ -1640,8 +1640,11 @@ button.bp-link {
 .settings-theme [data-swatch='dark'] i {
   background: linear-gradient(135deg, #171716 55%, #f2f0eb 55%);
 }
+.settings-theme [data-swatch='mini'] i {
+  background: radial-gradient(circle at 70% 30%, #e8574a 0 22%, transparent 23%), radial-gradient(circle at 30% 72%, #3e8ed9 0 20%, transparent 21%), linear-gradient(135deg, #efe9de 50%, #93c9e0 50%);
+}
 .settings-theme.settings-quality {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
 }
 .settings-font.settings-quality {
   grid-template-columns: repeat(3, 1fr);

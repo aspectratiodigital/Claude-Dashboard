@@ -123,7 +123,30 @@ Click a building to select it. Click it again (or press `Enter`) to **open it up
 
 The huts are stacked newest push first, so the top one (labelled **Latest push**) is the most recent work on that site. Click a hut to see **What changed**: a short plain-English description of what that push does to the site, written by your Claude Code (with its quickest model) the first time you open it and kept after that. Without Claude Code it shows the pull request's own summary instead.
 
-**Themes:** Settings, then **Appearance**, switches between Blueprint, Light (off-white with near-black lines) and Dark (off-black with soft white lines). In the desktop app the window's title bar follows: white on Light, black on Dark, and Windows' own colour on Blueprint.
+**Themes:** Settings, then **Appearance**, switches between Blueprint, Light (off-white with near-black lines), Dark (off-black with soft white lines) and Mini (below). In the desktop app the window's title bar follows: white on Light and Mini, black on Dark, and Windows' own colour on Blueprint.
+
+### Mini
+
+The **Mini** theme turns the plan into a little city in the style of Mini Motorways: a cream map with a river, and a coloured building for each site. A busier site gets a bigger lot and a taller building (one storey a page). Each site has a cluster of homes in its colour, and two cars live at each home. They drive to their site and back along the roads, crossing the river on bridges and going round roundabouts, and they go more often when the site has had more commits. The number in the top corner counts the trips made since the app opened.
+
+The same signals show up on the buildings: pins on the roof for open issues, a yellow badge while a build runs, green while it deploys, red with a ring on the ground when it's broken or down, a purple dot circling the roof while Claude works on it, and a kiosk with a coin for a Shopify store. Click a building to see its details, and click it again to open it up, as on the plan.
+
+The map is yours to change, with the toolbar along the top:
+
+| Tool | Key | What it does |
+| --- | --- | --- |
+| Look | `V` | Click buildings, drag to look around, scroll to zoom |
+| Move | `M` | Pick up a building or a home and drop it somewhere else; it joins the road it lands next to |
+| Road | `R` | Drag from tile to tile to lay a road; over water it becomes a bridge |
+| Roundabout | `O` | Click a junction to add a roundabout, or click one to take it away |
+| Home | `H` | Click an empty tile to build a home for the site you pick (or the open one) |
+| Trees | `T` | Click or drag to plant trees, or start on a tree to clear them |
+| Water | `W` | Drag to dig a river or a lake, or start on water to fill it in |
+| Erase | `X` | Drag over roads, homes, trees or water to take them away |
+
+A right-drag erases with any tool except Look, `Ctrl Z` and `Ctrl Y` undo and redo, `Esc` puts the tool down, and **New map** lays the city out again from scratch (you can undo that too). When a new site turns up it gets a building, homes and roads of its own on free ground (the map grows if it's full), and the rest of your city stays as you left it.
+
+The map saves as you go: in the app's data folder as `mini-map.json` (`.jarvis` in the browser version), and in the sync folder if you've set one up, so the laptop and the PC share the same city. The demo city and your real one are kept apart.
 
 ### Apps
 
@@ -239,6 +262,7 @@ server/                  local data service: GitHub, Claude sessions, site check
 src/data/                the data contract, live store, and the demo projects
 src/shared/              scene canvas and quality tiers, previews, notifications, project panel
 src/concepts/blueprint/  the Blueprint scene and panels
+src/concepts/mini/       the Mini city: map layout, roads and cars, the editing tools
 electron/                desktop app entry and the server bundle config
 build/                   app icon
 ```
