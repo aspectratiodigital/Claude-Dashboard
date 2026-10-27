@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { getProject, useData } from '../data/store'
 import { STATUS_LABEL } from '../data/derive'
-import { FONTS, useApp, type Font, type Theme } from '../store'
+import { FONTS, THEME_IDS, useApp, type Font, type Theme } from '../store'
 
 // Claude inside the dashboard. With the local API running and Claude Code
 // installed, each message runs your own Claude Code in the project's folder
@@ -647,7 +647,7 @@ function applyPrefs(p: Prefs) {
   applying = true
   prefsAt = p.at
   save('ard.prefs.at', String(prefsAt))
-  if (p.theme && ['blueprint', 'light', 'dark'].includes(p.theme)) useApp.getState().setTheme(p.theme as Theme)
+  if (p.theme && THEME_IDS.includes(p.theme as Theme)) useApp.getState().setTheme(p.theme as Theme)
   if (p.font && FONTS.some((f) => f.id === p.font)) useApp.getState().setFont(p.font as Font)
   if (typeof p.cars === 'boolean') useApp.getState().setCars(p.cars)
   if (typeof p.model === 'string' && MODELS.some((m) => m.id === p.model)) useClaude.getState().setModel(p.model)

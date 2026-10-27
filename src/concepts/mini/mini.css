@@ -1,0 +1,495 @@
+/* --- The Mini theme: a cream city after Mini Motorways ------------------------------------------
+   Its colours for the shared UI (tray, toasts, settings) and for Blueprint's panels, then the
+   Mini controls themselves (.mm-*). The map's own colours are in concepts/mini/look.ts. */
+
+.app[data-theme='mini'] {
+  --ui-bg: rgba(255, 253, 249, 0.96);
+  --ui-solid: #fffdf9;
+  --ui-fg: #2b2925;
+  --ui-muted: #77726a;
+  --ui-line: rgba(43, 41, 37, 0.14);
+  --ui-ac: #2b2925;
+  --ui-ac-fg: #fffdf9;
+  --ui-radius: 14px;
+  --lv-info: #3e8ed9;
+  --lv-progress: #b88511;
+  --lv-success: #3f9a5a;
+  --lv-warning: #cf7f12;
+  --lv-critical: #e8574a;
+  --mm-shadow: 0 8px 24px rgba(70, 55, 30, 0.13), 0 1px 3px rgba(70, 55, 30, 0.12);
+  --mm-build: #f2bd3d;
+  --mm-deploy: #4fae69;
+  --mm-bad: #e8574a;
+  --mm-claude: #8f63d6;
+}
+.app[data-theme='mini'] .bp {
+  --paper: #efe9de;
+  --paper-2: #e7e0d3;
+  --panel: rgba(255, 253, 249, 0.97);
+  --ink: #2b2925;
+  --line: #3f3b35;
+  --line-2: rgba(63, 59, 53, 0.62);
+  --line-3: rgba(63, 59, 53, 0.14);
+  --mark: #2b2925;
+  --crane: #f2bd3d;
+  --drone: #8f63d6;
+  --alert: #e8574a;
+  --go: #3f9a5a;
+  --shade: rgba(70, 55, 30, 0.12);
+  --grain: transparent;
+  --option-fg: #2b2925;
+}
+/* no paper texture or vignette over the city */
+.bp[data-mini='true']::after {
+  display: none;
+}
+.app[data-theme='mini'] .toasts {
+  top: 84px;
+}
+/* below the tool's hint while a tool is out, and below the site picker */
+.app[data-theme='mini']:has(.mm-hint) .toasts {
+  top: 136px;
+}
+.app[data-theme='mini']:has(.mm-brush) .toasts {
+  top: 184px;
+}
+/* a building is open: centre them between the key and the detail panel */
+.app[data-theme='mini'][data-selected='true'] .toasts {
+  left: calc((322px + 100vw - 16px - min(540px, 40vw)) / 2);
+}
+
+/* Blueprint's panels as soft white cards */
+.bp[data-mini='true'] .bp-callout {
+  top: 84px;
+  right: 16px;
+  bottom: 16px;
+  border: 0;
+  background: #fffdf9;
+  border-radius: 20px;
+  box-shadow: var(--mm-shadow);
+}
+.bp[data-mini='true'] .bp-notes {
+  left: 16px;
+  bottom: 16px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border-radius: 20px;
+  box-shadow: var(--mm-shadow);
+}
+.bp[data-mini='true'] .bp-compass {
+  top: 14px;
+  right: 108px;
+  padding: 4px 6px;
+  gap: 4px;
+  background: var(--panel);
+  border-radius: 999px;
+  box-shadow: var(--mm-shadow);
+}
+.bp[data-mini='true'] .bp-compass svg {
+  width: 36px;
+  height: 36px;
+}
+.bp[data-mini='true'] .bp-compass button {
+  border-radius: 50%;
+  border-color: var(--line-3);
+}
+.bp[data-mini='true'] .bp-bubble {
+  border: 0;
+  border-radius: 10px;
+  background: var(--tint, var(--ink));
+  color: #fff;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.14);
+}
+.bp[data-mini='true'] :is(.bp-parts button, .bp-open, .bp-seg button, .cl-compose form button, .bp-notes-target select) {
+  border-radius: 999px;
+}
+.bp[data-mini='true'] .bp-preview {
+  --pv-radius: 12px;
+}
+.bp[data-mini='true'] .bp-callout :is(th, td) {
+  border-color: rgba(63, 59, 53, 0.1);
+}
+.bp[data-mini='true'] .bp-canvas {
+  cursor: default;
+}
+
+/* --- Header: the clock, the city and its trips --------------------------------------------------- */
+.mm-head {
+  position: absolute;
+  z-index: 5;
+  top: 14px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px 7px 8px;
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--mm-shadow);
+  color: var(--ink);
+  animation: mm-pop 0.5s 0.1s both;
+}
+.mm-clock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line-3);
+}
+.mm-clock circle {
+  fill: #fff;
+  stroke: var(--ink);
+  stroke-width: 2.4;
+}
+.mm-clock path {
+  stroke: var(--mm-bad);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+.mm-clock b {
+  display: block;
+  font: 800 13px/1.1 var(--ui-display);
+  letter-spacing: 0.08em;
+}
+.mm-clock span,
+.mm-name p {
+  font-size: 10.5px;
+  color: var(--line-2);
+}
+.mm-name h1 {
+  margin: 0;
+  font: 800 15px/1.15 var(--ui-display);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.mm-name p {
+  margin: 2px 0 0;
+}
+.mm-trips {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-3);
+  font: 800 16px var(--ui-display);
+  font-variant-numeric: tabular-nums;
+}
+.mm-trips rect:first-child {
+  fill: var(--mm-bad);
+}
+.mm-trips rect:last-child {
+  fill: #fff;
+  opacity: 0.75;
+}
+@keyframes mm-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+/* --- Toolbar ------------------------------------------------------------------------------------- */
+.mm-tools-wrap {
+  position: absolute;
+  z-index: 6;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.mm-tools {
+  pointer-events: auto;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 5px;
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--mm-shadow);
+  animation: mm-pop 0.5s 0.2s both;
+}
+.mm-tools button {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  min-width: 50px;
+  padding: 6px 4px 5px;
+  border-radius: 13px;
+  color: var(--line);
+  font: 600 10px/1 var(--ui-font);
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+}
+.mm-tools button:hover:not(:disabled) {
+  background: rgba(43, 41, 37, 0.07);
+}
+.mm-tools button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.mm-tools button[aria-pressed='true'] {
+  background: var(--ink);
+  color: #fffdf9;
+}
+.mm-tools button:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+.mm-tools button[data-sure='true'] {
+  background: var(--mm-bad);
+  color: #fff;
+}
+.mm-tools button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+.mm-sep {
+  width: 1px;
+  margin: 6px 4px;
+  background: var(--line-3);
+}
+.mm-hint {
+  pointer-events: auto;
+  margin: 0;
+  /* clear of the key on the left (and the same gap on the right) */
+  max-width: clamp(240px, 100vw - 650px, 540px);
+  padding: 7px 14px;
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--mm-shadow);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--line);
+  text-align: center;
+  animation: mm-pop 0.25s both;
+}
+.mm-brush {
+  pointer-events: auto;
+  display: flex;
+  gap: 6px;
+  max-width: clamp(240px, 100vw - 650px, 680px);
+  /* room for the chips' shadows inside the scroller */
+  padding: 2px 6px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  animation: mm-pop 0.25s both;
+}
+.mm-brush::-webkit-scrollbar {
+  display: none;
+}
+.mm-brush[data-more='r'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+}
+.mm-brush[data-more='l'] {
+  mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent);
+}
+.mm-brush[data-more='lr'] {
+  mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+}
+.mm-brush button {
+  all: unset;
+  flex: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px 5px 7px;
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: var(--mm-shadow);
+  font: 600 11px var(--ui-font);
+  color: var(--line);
+}
+.mm-brush button i {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--c);
+}
+.mm-brush button[aria-checked='true'] {
+  box-shadow: inset 0 0 0 2px var(--c), var(--mm-shadow);
+  color: var(--ink);
+}
+@media (max-width: 1140px) {
+  .mm-tools button {
+    min-width: 38px;
+  }
+  .mm-tools button span {
+    display: none;
+  }
+  .mm-tools button {
+    padding: 8px 4px;
+  }
+}
+/* a narrower window: the header keeps its clock and trips, then the buttons lose their names and close up */
+@media (max-width: 1430px) {
+  .mm-name {
+    display: none;
+  }
+}
+@media (max-width: 1000px) {
+  .mm-tools button {
+    min-width: 32px;
+  }
+  .mm-sep {
+    margin: 6px 2px;
+  }
+  .bp[data-mini='true'] .bp-compass button {
+    display: none;
+  }
+}
+
+/* --- Key ----------------------------------------------------------------------------------------- */
+.mm-key {
+  position: absolute;
+  z-index: 5;
+  top: 84px;
+  left: 16px;
+  width: 290px;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--mm-shadow);
+  color: var(--line);
+  font-size: 11.5px;
+  animation: mm-pop 0.5s 0.3s both;
+}
+.mm-key-head {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: baseline;
+  font: 700 12px var(--ui-display);
+  color: var(--ink);
+}
+.mm-key-head span {
+  font: 500 10.5px var(--ui-font);
+  color: var(--line-2);
+}
+.mm-key ul {
+  list-style: none;
+  margin: 9px 0 2px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.mm-key li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.3;
+}
+.mm-key li i {
+  justify-self: center;
+  width: 16px;
+  height: 16px;
+}
+.mm-k-site {
+  border-radius: 3px;
+  background: #e8574a;
+  box-shadow: 0 0 0 3px #f6c8c1;
+}
+.mm-k-home {
+  background: #3e8ed9;
+  clip-path: polygon(50% 0, 100% 42%, 100% 100%, 0 100%, 0 42%);
+}
+.mm-key li .mm-k-pin {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #e8574a;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 4px rgba(0, 0, 0, 0.12);
+}
+.mm-k-ring {
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: inset 0 0 0 4px var(--c), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.mm-key li .mm-k-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--mm-claude);
+}
+@media (max-height: 760px) {
+  .mm-key[data-open='true'] ul {
+    display: none;
+  }
+}
+
+/* --- Name tags over the buildings ------------------------------------------------------------------ */
+.mm-tag-wrap {
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mm-tag {
+  position: relative;
+  white-space: nowrap;
+  opacity: 0.94;
+  transition: transform 0.25s, opacity 0.25s;
+}
+.mm-tag b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 6px;
+  border-radius: 999px;
+  background: rgba(255, 253, 249, 0.94);
+  color: #2b2925;
+  font: 700 11px var(--ui-display);
+  box-shadow: 0 2px 6px rgba(70, 55, 30, 0.18);
+}
+.mm-tag b i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.mm-tag span {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  translate: -50% 0;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 253, 249, 0.92);
+  font-size: 10px;
+  color: #5a554d;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+.mm-tag[data-status='broken'] b,
+.mm-tag[data-status='attention'] b {
+  box-shadow: inset 0 0 0 1.5px var(--mm-bad), 0 2px 6px rgba(70, 55, 30, 0.18);
+}
+.mm-tag[data-active='true'] {
+  opacity: 1;
+  transform: translateY(-6px);
+}
+.mm-tag[data-active='true'] b {
+  box-shadow: inset 0 0 0 2px var(--c), 0 4px 10px rgba(70, 55, 30, 0.2);
+}
+.mm-tag[data-active='true'] span {
+  opacity: 1;
+  transform: none;
+}
+.bp[data-selected='true'] .mm-tag:not([data-active='true']) {
+  opacity: 0.45;
+}
+.mm-chip {
+  border-radius: 999px;
+  font-family: var(--ui-font);
+}
