@@ -2619,3 +2619,71 @@ button.cl-group-head:hover {
   overflow: hidden;
   word-break: break-all;
 }
+
+/* earlier threads: from the site's Claude project, and Claude Code sessions on this computer */
+.cl-earlier {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line-3);
+}
+.cl-earlier h3 {
+  margin: 0 0 4px;
+}
+.cl-earlier .cl-group .cl-group {
+  margin-top: 2px;
+}
+.cl-earlier-link {
+  border-style: dashed;
+}
+.cl-origin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--line-2);
+}
+.cl-origin b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.cl-origin span {
+  padding: 1px 6px;
+  border: 1px solid var(--line-3);
+  border-radius: 8px;
+  font-size: 10px;
+}
+.cl-origin span[data-state='resolved'] {
+  border-color: var(--go);
+  color: var(--go);
+}
+.cl-origin span[data-state='waiting'],
+.cl-origin span[data-state='working'] {
+  border-color: var(--mark);
+  color: var(--mark);
+}
+.cl-origin a {
+  color: var(--mark);
+}
+.cl-origin em {
+  flex-basis: 100%;
+  font-style: normal;
+}
+.cl-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+}
+.cl-links li {
+  padding: 3px 8px;
+  border: 1px dashed var(--line-3);
+}
+.cl-links a {
+  color: var(--mark);
+  text-decoration: none;
+}

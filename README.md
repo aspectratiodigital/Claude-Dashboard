@@ -101,7 +101,7 @@ claude.ai doesn't offer an API for Projects yet, so the dashboard can't read you
 - branches Claude creates (`claude/...`)
 - pull requests that link back to a claude.ai session or project (that link becomes the project's **Claude project** button)
 - `Claude-Session:` and `Co-Authored-By: Claude` lines in commits
-- Claude Code sessions on this computer, from `~/.claude/projects`. Only the session title, folder, branch and times are read, never the conversation.
+- Claude Code sessions on this computer, from `~/.claude/projects`. For the plan, only the session title, folder, branch and times are read. The conversation is only read when you open it under **Earlier** in a site's Claude chat, and it never leaves your computer.
 
 So the projects on screen are the real sites you're working on with Claude, and each thread links back to where it lives.
 
@@ -177,6 +177,15 @@ Conversations are kept between launches (in the app's data folder, newest 300), 
 - **Replies** read like Claude on claude.ai: the answer first, then bullets, short sections with a line between subjects, links to the pull requests, issues and pages it mentions, and a **Your call** list when you need to decide something. Code Claude edits shows as one **Changed N files** line you can open up; documents, images and exports it makes get their own card with Open and Download.
 - **Threads** are named by Claude in a few words after its first reply, and sorted into **Working**, **Waiting on you** (a question, a decision or an Allow), **Idle** and **Resolved** (folded away). Claude marks a thread resolved when the work's done, or use **✓ Resolve** / **Reopen** at the top; writing in a resolved thread opens it again.
 - **Add a skill** from the same drawer: **Upload a skill** takes a `SKILL.md`, or a `.zip` / `.skill` with a skill folder in it (the kind you download from claude.ai), and **Write one** makes a new skill from a name, when to use it, and its instructions. Pick **All my projects** (saved in `~/.claude/skills`) or **This project only** (saved in the project's `.claude/skills`, so it goes in the repo). The ✕ next to one of your skills removes it.
+
+### Earlier threads from your Claude projects
+
+Each site's Claude chat (fullscreen) has an **Earlier** section under its threads:
+
+- **The site's Claude project.** claude.ai doesn't let apps read project threads, but Claude inside a project can, so it exports them for you. In the project, say **export threads to Blueprint** (the skill of the same name does the work). Claude writes every thread, open and resolved, to `D:\Claude-Dashboard\.jarvis\project-threads\` on your PC. Open ones show first, with resolved ones folded away. Say it again to bring them up to date. If Claude can't reach your PC, it gives you the file instead: use **Settings → Threads from your Claude projects → Import an export file**. An export shows under the site whose GitHub repo the project is connected to, and under **All projects** if none matches.
+- **On this computer.** Claude Code sessions you ran on this PC (Remote Control, the terminal) are read back from `~/.claude/projects`, for the repo they ran in. The app's own threads aren't listed twice.
+
+Earlier threads are read-only. Writing in one starts a new thread here that hands Claude the conversation so far. **Open in Claude** goes to the original. With a sync folder set, exports are copied into it, so your other computer gets them too.
 
 ### Laptop and PC sharing the same chats
 
