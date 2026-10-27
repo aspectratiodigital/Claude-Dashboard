@@ -61,6 +61,21 @@ export interface ChatMessage {
   error?: boolean
   attachments?: Attachment[]
   files?: MadeFile[]
+  /** links a message from a Claude project carried (its PR, documents) */
+  links?: { title: string; url?: string }[]
+  /** who wrote it, when it came from a Claude project */
+  author?: string
+}
+
+/** Where an earlier thread came from: a Claude project's export, or a Claude Code session on this computer. */
+export interface Origin {
+  kind: 'project' | 'local'
+  /** the history id the local API knows it by */
+  id: string
+  /** the project's name, or the folder the session ran in */
+  from: string
+  state: ThreadState
+  url?: string
 }
 
 export interface Conversation {
@@ -81,6 +96,10 @@ export interface Conversation {
   status?: 'waiting' | 'idle' | 'resolved'
   /** named by Claude, so the first message's text no longer stands in for a title */
   titled?: boolean
+  /** an earlier thread, shown read-only: writing in it carries it on in a new thread */
+  origin?: Origin
+  /** carried on from an earlier thread: the first message hands Claude the conversation so far */
+  handover?: boolean
 }
 
 export type ThreadState = 'working' | 'waiting' | 'idle' | 'resolved'
@@ -309,7 +328,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
     aborts.set(convId, ctl)
     const allowed = [...c.allowed, ...(allow ?? [])]
     // a session started on the other computer can't be resumed here: hand Claude the conversation instead
-    const here = !c.session || !c.sessionHost || !localHost || c.sessionHost === localHost
+    const here = !c.handover && (!c.session || !c.sessionHost || !localHost || c.sessionHost === localHost)
     try {
       const res = await fetch('./api/claude', {
         method: 'POST',
@@ -355,7 +374,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
           else if (e.type === 'file') patchMsg(convId, replyId, (m) => ({ files: [...(m.files ?? []).filter((f) => f.path !== e.path), { path: e.path, name: e.name, action: e.action }] }))
           else if (e.type === 'error') patchMsg(convId, replyId, (m) => ({ text: m.text ? `${m.text}\n\n${e.text}` : e.text, error: true }))
           else if (e.type === 'done') {
-            if (e.session) patchConv(convId, () => ({ session: e.session, sessionHost: localHost || undefined, allowed }))
+            if (e.session) patchConv(convId, () => ({ session: e.session, sessionHost: localHost || undefined, allowed, handover: undefined }))
             const said = conv(convId)?.messages.find((m) => m.id === replyId)?.text ?? ''
             const status = (STATUS_LINE.exec(said)?.[1]?.toLowerCase() ?? 'idle') as Conversation['status']
             patchMsg(convId, replyId, (m) => {
@@ -431,7 +450,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
       const cur = get().current[key]
       if (cur && conv(cur)) return cur
       const latest = get()
-        .convs.filter((c) => keyOf(c.projectId) === key)
+        .convs.filter((c) => keyOf(c.projectId) === key && !c.origin)
         .sort((a, b) => b.updated - a.updated)[0]
       if (latest) {
         set((s) => ({ current: { ...s.current, [key]: latest.id } }))
@@ -467,6 +486,12 @@ export const useClaude = create<ClaudeState>((set, get) => {
       const text = prompt.trim() || (files ? `Have a look at ${files.length === 1 ? files[0].name : 'these files'}.` : '')
       const c = conv(convId)
       if (!text || !c || c.speaking) return
+      if (c.origin) {
+        // an earlier thread stays as it was: carry it on in a new thread that starts with its conversation
+        const id = get().start(c.projectId)
+        patchConv(id, () => ({ title: c.title, titled: true, handover: true, messages: c.messages.map((m) => ({ ...m, id: nextId++ })) }))
+        return get().send(id, text, files)
+      }
       window.clearInterval(timers.get(convId))
       const userId = nextId++
       const replyId = nextId++
@@ -518,7 +543,7 @@ export const useClaude = create<ClaudeState>((set, get) => {
 })
 
 /** All conversations about one project ("" or null = all projects), newest first. */
-export const convsFor = (convs: Conversation[], projectId: string | null) => convs.filter((c) => keyOf(c.projectId) === keyOf(projectId)).sort((a, b) => b.updated - a.updated)
+export const convsFor = (convs: Conversation[], projectId: string | null) => convs.filter((c) => keyOf(c.projectId) === keyOf(projectId) && !c.origin).sort((a, b) => b.updated - a.updated)
 
 /** Conversations someone actually wrote in (the greeting alone doesn't count). */
 export const hasTalk = (c: Conversation) => c.messages.some((m) => m.role === 'user')
@@ -544,7 +569,7 @@ function transcript(c: Conversation) {
   return msgs
     .slice(first < 0 ? msgs.length : first)
     .filter((m) => m.text.trim())
-    .map((m) => `${m.role === 'user' ? 'Dylan' : 'Claude'}: ${m.text.trim()}${m.attachments?.length ? ` [attached: ${m.attachments.map((a) => a.name).join(', ')}]` : ''}${m.files?.length ? ` [wrote: ${m.files.map((f) => f.path).join(', ')}]` : ''}`)
+    .map((m) => `${m.author ?? (m.role === 'user' ? 'Dylan' : 'Claude')}: ${m.text.trim()}${m.links?.length ? ` [links: ${m.links.map((l) => (l.url ? `${l.title} (${l.url})` : l.title)).join(', ')}]` : ''}${m.attachments?.length ? ` [attached: ${m.attachments.map((a) => a.name).join(', ')}]` : ''}${m.files?.length ? ` [wrote: ${m.files.map((f) => f.path).join(', ')}]` : ''}`)
     .join('\n\n')
 }
 
@@ -664,7 +689,7 @@ useApp.subscribe((s, prev) => {
 useClaude.subscribe((s, prev) => {
   if (s.convs === prev.convs) return
   for (const c of s.convs) {
-    if (!hasTalk(c) || saved.get(c.id) === c.updated) continue
+    if (!hasTalk(c) || c.origin || saved.get(c.id) === c.updated) continue
     saved.set(c.id, c.updated)
     window.clearTimeout(saveTimers.get(c.id))
     // while Claude is answering, save every few seconds rather than on every word
@@ -694,3 +719,86 @@ export async function openFile(path: string, reveal = false): Promise<string | n
     return 'Could not reach the local API'
   }
 }
+
+// --- Earlier threads: from Claude projects, and Claude Code sessions on this computer ----------------
+
+export interface HistoryThread {
+  id: string
+  kind: 'project' | 'local'
+  title: string
+  state: ThreadState
+  updated: string
+  created?: string
+  messages: number
+  url?: string
+  from: string
+}
+
+interface HistoryMessage {
+  role: 'user' | 'claude'
+  text: string
+  at?: string
+  author?: string
+  steps?: string[]
+  links?: { title: string; url?: string }[]
+}
+
+interface HistoryState {
+  /** earlier threads per project ("" = all projects), once asked for */
+  lists: Record<string, { threads: HistoryThread[]; at: number }>
+  opening: string
+  error: string
+  /** fetch a project's earlier threads (again, if it's been a while) */
+  load: (projectId: string | null, force?: boolean) => void
+  /** show an earlier thread in the chat */
+  open: (projectId: string | null, t: HistoryThread) => Promise<void>
+}
+
+/** the conversation id an earlier thread shows under (per project, since one Claude project can cover several sites) */
+export const historyConvId = (projectId: string | null, t: HistoryThread) => `h-${keyOf(projectId)}-${t.id.replace(/[^\w-]+/g, '_')}`
+
+export const useHistory = create<HistoryState>((set, get) => ({
+  lists: {},
+  opening: '',
+  error: '',
+  load: (projectId, force) => {
+    const key = keyOf(projectId)
+    const have = get().lists[key]
+    if (!useData.getState().api || (!force && have && Date.now() - have.at < 30_000)) return
+    // mark it straight away so several panels asking at once only fetch it once
+    set((s) => ({ lists: { ...s.lists, [key]: { threads: have?.threads ?? [], at: Date.now() } } }))
+    fetch(`./api/history?project=${encodeURIComponent(key)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((r: { threads: HistoryThread[] } | null) => r && set((s) => ({ lists: { ...s.lists, [key]: { threads: r.threads, at: Date.now() } } })))
+      .catch(() => {})
+  },
+  open: async (projectId, t) => {
+    const id = historyConvId(projectId, t)
+    const key = keyOf(projectId)
+    const s = useClaude.getState()
+    if (s.convs.some((c) => c.id === id)) return void useClaude.setState((x) => ({ current: { ...x.current, [key]: id } }))
+    set({ opening: t.id, error: '' })
+    try {
+      const r = await fetch(`./api/history/thread?id=${encodeURIComponent(t.id)}`)
+      const j = (await r.json()) as { messages?: HistoryMessage[]; error?: string }
+      if (!r.ok || !j.messages) throw new Error(j.error ?? `HTTP ${r.status}`)
+      const at = (m: HistoryMessage) => (m.at ? Date.parse(m.at) : 0)
+      const conv: Conversation = {
+        id,
+        projectId,
+        title: t.title,
+        messages: j.messages.map((m) => ({ id: nextId++, role: m.role, text: m.text, steps: m.steps, links: m.links, author: m.author })),
+        speaking: false,
+        allowed: [],
+        created: (t.created ? Date.parse(t.created) : 0) || at(j.messages[0] ?? { role: 'user', text: '' }) || Date.parse(t.updated),
+        updated: Date.parse(t.updated),
+        titled: true,
+        origin: { kind: t.kind, id: t.id, from: t.from, state: t.state, url: t.url },
+      }
+      useClaude.setState((x) => ({ convs: [...x.convs.filter((c) => c.id !== id), conv], current: { ...x.current, [key]: id } }))
+      set({ opening: '' })
+    } catch (e) {
+      set({ opening: '', error: `Couldn’t open “${t.title}”: ${(e as Error).message}` })
+    }
+  },
+}))

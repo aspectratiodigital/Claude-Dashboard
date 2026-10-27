@@ -3,7 +3,8 @@ import { useData } from '../data/store'
 import { FONTS, useApp, type Quality, type Theme } from '../store'
 import { detectTier, resolveTier, TIERS } from './quality'
 import { Icon } from './icons'
-import { syncNow } from './claude'
+import { syncNow, useHistory } from './claude'
+import { relTime } from '../data/derive'
 
 // Settings: connect GitHub, per-project URLs and ports, theme, font, rendering quality.
 // Secrets go to the local API, which keeps them in .jarvis/settings.json on
@@ -24,6 +25,86 @@ interface Remote {
 const PERMS = ['contents', 'metadata', 'pull_requests', 'issues', 'actions', 'deployments', 'statuses'].map((p) => `${p}=read`).join('&')
 /** what Claude in the app needs to push, open pull requests and re-run builds, like Claude on the web */
 const WRITE_PERMS = [...['contents', 'pull_requests', 'issues', 'actions', 'workflows'].map((p) => `${p}=write`), ...['metadata', 'deployments', 'statuses'].map((p) => `${p}=read`)].join('&')
+
+interface ExportInfo {
+  id: string
+  name: string
+  url?: string
+  exportedAt: string
+  threads: number
+  open: number
+  repos: string[]
+  sites: string[]
+}
+
+/** Threads from your Claude projects: what's been exported, and importing an export by hand. */
+function ProjectThreads({ flash }: { flash: (m: string) => void }) {
+  const [list, setList] = useState<ExportInfo[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = () =>
+    fetch('./api/history/exports')
+      .then((r) => r.json())
+      .then((r: { exports: ExportInfo[] }) => setList(r.exports))
+      .catch(() => setList([]))
+  useEffect(() => void load(), [])
+  // the site chats fetch their earlier threads again next time
+  const changed = () => useHistory.setState({ lists: {} })
+  const pick = async (file: File | undefined) => {
+    if (!file) return
+    setBusy(true)
+    try {
+      const r = await fetch('./api/history/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: file })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) flash(j.error ?? 'Could not import that file')
+      else flash(`Imported ${j.threads} thread${j.threads === 1 ? '' : 's'} from ${j.name}`)
+    } finally {
+      setBusy(false)
+      changed()
+      load()
+    }
+  }
+  const remove = async (x: ExportInfo) => {
+    if (!window.confirm(`Remove the ${x.name} threads from the app? They stay in Claude.`)) return
+    await fetch('./api/history/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: x.id }) }).catch(() => {})
+    changed()
+    load()
+  }
+  return (
+    <section>
+      <h3>
+        <Icon.claude size={16} /> Threads from your Claude projects
+      </h3>
+      <p className="settings-note">
+        claude.ai doesn't let apps read project threads, so Claude exports them for you. In a site's Claude project, say <b>export threads to Blueprint</b>. Every thread, open or resolved, then shows in that site's Claude chat under Earlier. Say it again whenever you want them brought up to date. Claude Code sessions you ran on this computer show there on their own.
+      </p>
+      {list?.length ? (
+        <ul className="settings-exports">
+          {list.map((x) => (
+            <li key={x.id}>
+              <div>
+                <b>{x.url ? <a href={x.url} target="_blank" rel="noreferrer">{x.name}</a> : x.name}</b>
+                <small>
+                  {x.threads} thread{x.threads === 1 ? '' : 's'}, {x.open} open · exported {relTime(x.exportedAt)} · {x.sites.length ? `shows under ${x.sites.join(', ')}` : 'matches no site, so it shows under All projects'}
+                </small>
+              </div>
+              <button className="settings-btn ghost" onClick={() => remove(x)}>
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        list && <p className="settings-status">No project exports yet.</p>
+      )}
+      <div className="settings-row">
+        <label className="settings-btn ghost" aria-disabled={busy}>
+          {busy ? 'Importing…' : 'Import an export file'}
+          <input type="file" accept=".json,application/json" hidden onChange={(e) => pick(e.target.files?.[0]).then(() => (e.target.value = ''))} />
+        </label>
+      </div>
+    </section>
+  )
+}
 
 const THEMES: [Theme, string, string][] = [
   ['blueprint', 'Blueprint', 'Drafting blue with yellow marks'],
@@ -258,6 +339,8 @@ export function Settings() {
               </div>
             </section>
           )}
+
+          {api && <ProjectThreads flash={flash} />}
 
           <section>
             <h3>

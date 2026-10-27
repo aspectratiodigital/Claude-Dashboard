@@ -3,9 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 
 // Claude Code keeps a transcript of every local session under
-// ~/.claude/projects/<folder>/<session>.jsonl. We read only the title, folder,
-// branch and timestamps (never the conversation itself leaves your machine),
-// then match each session to a repo through the folder's git remote.
+// ~/.claude/projects/<folder>/<session>.jsonl. Here we read only the title,
+// folder, branch and timestamps, then match each session to a repo through the
+// folder's git remote. (server/history.ts reads a conversation back when you
+// open it in a site's chat; it never leaves your machine.)
 
 export interface LocalSession {
   id: string
@@ -17,6 +18,8 @@ export interface LocalSession {
   /** "owner/repo", lowercased, from the folder's git remote */
   repo: string | null
   folder: string
+  /** the transcript itself, for reading a session back (server/history.ts) */
+  file: string
 }
 
 const cache = new Map<string, { key: string; s: LocalSession | null }>()
@@ -108,10 +111,11 @@ function parse(file: string, stat: fs.Stats): LocalSession | null {
     updated: stat.mtime.toISOString(),
     repo: repoFor(cwd),
     folder: path.basename(cwd),
+    file,
   }
 }
 
-/** Sessions touched in the last three weeks, newest first. */
+/** Sessions touched in the last three weeks (or `days`), newest first. */
 export function scanLocalSessions(days = 21): LocalSession[] {
   const root = claudeDir()
   if (!fs.existsSync(root)) return []

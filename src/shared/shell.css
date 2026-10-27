@@ -1269,3 +1269,31 @@ li[data-unread='true'] .drawer-text b::after {
   color: var(--ui-fg);
   border-bottom-color: var(--ui-ac);
 }
+.settings-exports {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-exports li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--ui-line);
+  border-radius: calc(var(--ui-radius) * 0.7);
+}
+.settings-exports li > div {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.settings-exports a {
+  color: inherit;
+}
+.settings-exports small {
+  font-size: 12px;
+  opacity: 0.75;
+}

@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import type { Project } from '../../data/types'
 import { useData, useProject } from '../../data/store'
 import { STATUS_LABEL, relTime } from '../../data/derive'
-import { ASK_TEXT, EFFORTS, MODELS, PERMISSIONS, THREAD_STATES, cleanReply, convsFor, fileUrl, hasTalk, openFile, threadState, uploadFile, useClaude, type Attachment, type ClaudeTask, type Conversation, type MadeFile, type ThreadState } from '../../shared/claude'
+import { ASK_TEXT, EFFORTS, MODELS, PERMISSIONS, THREAD_STATES, cleanReply, convsFor, fileUrl, hasTalk, historyConvId, openFile, threadState, uploadFile, useClaude, useHistory, type Attachment, type ClaudeTask, type Conversation, type HistoryThread, type MadeFile, type ThreadState } from '../../shared/claude'
 import { KnowledgePanel, ToolsPanel, useExtras } from './ClaudeExtras'
 import { Icon } from '../../shared/icons'
 import { useApp } from '../../store'
@@ -219,7 +219,7 @@ export function ChatLog({ conv }: { conv: Conversation }) {
       {conv.messages.map((m, i) =>
         m.answered && m.text === ASK_TEXT ? null : (
           <li key={m.id} data-role={m.role} data-error={m.error || undefined}>
-            <span>{m.role === 'claude' ? 'C' : 'D'}</span>
+            <span>{m.role === 'claude' ? 'C' : (m.author?.[0] ?? 'D').toUpperCase()}</span>
             <div>
               {m.attachments && (
                 <ul className="cl-chips">
@@ -245,6 +245,13 @@ export function ChatLog({ conv }: { conv: Conversation }) {
                 </ul>
               )}
               {m.files?.some((f) => !isDeliverable(f)) && <ChangedFiles files={m.files.filter((f) => !isDeliverable(f))} />}
+              {m.links?.length ? (
+                <ul className="cl-links">
+                  {m.links.map((l, k) => (
+                    <li key={k}>{l.url ? <a href={l.url} target="_blank" rel="noreferrer">{l.title} ↗</a> : <span>{l.title}</span>}</li>
+                  ))}
+                </ul>
+              ) : null}
               {m.asks && !m.answered && (
                 <div className="bp-ask">
                   <ul>
@@ -269,7 +276,7 @@ export function ChatLog({ conv }: { conv: Conversation }) {
               {m.role === 'claude' && !m.streaming && m.text && talked && i > 0 && (
                 <div className="cl-acts">
                   <Copy text={cleanReply(m.text)} />
-                  {i === conv.messages.length - 1 && (
+                  {i === conv.messages.length - 1 && !conv.origin && (
                     <button onClick={() => retry(conv.id)} disabled={conv.speaking} title="Ask again">
                       <Icon.refresh size={12} /> Retry
                     </button>
@@ -281,6 +288,105 @@ export function ChatLog({ conv }: { conv: Conversation }) {
         ),
       )}
     </ol>
+  )
+}
+
+const ORIGIN_STATE: Record<ThreadState, string> = { working: 'Working', waiting: 'Waiting on you', idle: 'Open', resolved: 'Resolved' }
+
+/** Above the composer on an earlier thread: where it's from, and what writing in it does. */
+function HistoryNote({ conv }: { conv: Conversation }) {
+  const o = conv.origin
+  if (!o) return null
+  return (
+    <p className="cl-origin">
+      <b>{o.kind === 'project' ? `From the ${o.from} project` : `Claude Code on this computer, in ${o.from}`}</b>
+      {o.kind === 'project' && <span data-state={o.state}>{ORIGIN_STATE[o.state]}</span>}
+      {o.url && (
+        <a href={o.url} target="_blank" rel="noreferrer">
+          Open in Claude ↗
+        </a>
+      )}
+      <em>Writing below carries this on as a new thread here, with the conversation so far as context.</em>
+    </p>
+  )
+}
+
+/** Earlier threads for a project: its Claude project's threads (open first) and sessions on this computer. */
+function Earlier({ projectId, find }: { projectId: string | null; find: string }) {
+  const key = projectId ?? ''
+  const list = useHistory((s) => s.lists[key]?.threads)
+  const load = useHistory((s) => s.load)
+  const open = useHistory((s) => s.open)
+  const opening = useHistory((s) => s.opening)
+  const error = useHistory((s) => s.error)
+  const current = useClaude((s) => s.current[key])
+  const [showResolved, setShowResolved] = useState(false)
+  const [showLocal, setShowLocal] = useState(false)
+  useEffect(() => load(projectId), [projectId, load])
+  if (!list?.length) return null
+  const shown = list.filter((t) => !find || t.title.toLowerCase().includes(find))
+  const project = shown.filter((t) => t.kind === 'project')
+  const projOpen = project.filter((t) => t.state !== 'resolved')
+  const projDone = project.filter((t) => t.state === 'resolved')
+  const local = shown.filter((t) => t.kind === 'local')
+  const names = [...new Set(project.map((t) => t.from))]
+  const row = (t: HistoryThread) => (
+    <li key={t.id} data-state={t.state}>
+      <button aria-pressed={historyConvId(projectId, t) === current} onClick={() => open(projectId, t)} title={t.kind === 'project' ? `${t.from} · ${ORIGIN_STATE[t.state]}` : `Claude Code in ${t.from}`}>
+        <b>
+          <i className="cl-state" data-state={t.state === 'working' ? 'waiting' : t.state} aria-hidden />
+          {t.title}
+        </b>
+        <span>{opening === t.id ? 'Opening…' : `${t.messages} message${t.messages === 1 ? '' : 's'} · ${relTime(t.updated)}`}</span>
+      </button>
+    </li>
+  )
+  const fold = (label: string, n: number, open: boolean, toggle: () => void) => (
+    <button className="cl-group-head" onClick={toggle} aria-expanded={open || !!find}>
+      {label} <span>{n}</span> <i aria-hidden>{open || find ? '▾' : '▸'}</i>
+    </button>
+  )
+  return (
+    <div className="cl-earlier">
+      <h3>Earlier</h3>
+      {error && <p className="cl-err">{error}</p>}
+      {project.length > 0 && (
+        <section className="cl-group" data-state="project">
+          <h4 className="cl-group-head" title="From your Claude project, as of its last export">
+            {names.length === 1 ? names[0] : 'Claude projects'} <span>{projOpen.length}</span>
+          </h4>
+          <ul>{projOpen.map(row)}</ul>
+          {projDone.length > 0 && (
+            <section className="cl-group" data-state="resolved">
+              {fold('Resolved', projDone.length, showResolved, () => setShowResolved((v) => !v))}
+              {(showResolved || !!find) && <ul>{projDone.map(row)}</ul>}
+            </section>
+          )}
+        </section>
+      )}
+      {local.length > 0 && (
+        <section className="cl-group" data-state="local">
+          {fold('On this computer', local.length, showLocal, () => setShowLocal((v) => !v))}
+          {(showLocal || !!find) && <ul>{local.map(row)}</ul>}
+        </section>
+      )}
+    </div>
+  )
+}
+
+/** In a building's Claude panel: how many earlier threads there are, opening them fullscreen. */
+function EarlierLink({ projectId }: { projectId: string }) {
+  const list = useHistory((s) => s.lists[projectId]?.threads)
+  const load = useHistory((s) => s.load)
+  const openFull = useClaude((s) => s.openFull)
+  useEffect(() => load(projectId), [projectId, load])
+  const open = list?.filter((t) => t.kind === 'project' && t.state !== 'resolved').length ?? 0
+  if (!list?.length) return null
+  return (
+    <button className="cl-new cl-earlier-link" onClick={() => openFull(projectId)} title="See this site's threads from Claude, fullscreen">
+      Earlier threads: {list.length}
+      {open ? ` (${open} open)` : ''}
+    </button>
   )
 }
 
@@ -466,6 +572,7 @@ export function Composer({ conv, placeholder, autoFocus, takesInserts }: { conv:
         <button disabled={!conv.speaking && (uploading > 0 || (!text.trim() && !files.length))}>{conv.speaking ? 'Stop' : 'Send'}</button>
       </form>
       {err && <p className="cl-err">{err}</p>}
+      <HistoryNote conv={conv} />
       <ModelPicker />
     </div>
   )
@@ -529,6 +636,7 @@ function Threads({ projectId, compact }: { projectId: string | null; compact?: b
   const [q, setQ] = useState('')
   const find = q.trim().toLowerCase()
   const [showResolved, setShowResolved] = useState(false)
+  const earlier = useHistory((s) => s.lists[projectId ?? '']?.threads.length ?? 0)
   const shown = convs.filter((c) => (hasTalk(c) || c.id === current) && (!find || c.title.toLowerCase().includes(find) || c.messages.some((m) => m.text.toLowerCase().includes(find))))
   const groups = THREAD_STATES.map((g) => ({ ...g, list: shown.filter((c) => (hasTalk(c) ? threadState(c) : 'idle') === g.id) })).filter((g) => g.list.length)
   const row = (c: Conversation) => {
@@ -558,6 +666,7 @@ function Threads({ projectId, compact }: { projectId: string | null; compact?: b
           + New thread
         </button>
         <ul>{groups.flatMap((g) => (g.id === 'resolved' ? g.list.filter((c) => c.id === current) : g.list)).map(row)}</ul>
+        {projectId && <EarlierLink projectId={projectId} />}
       </nav>
     )
   return (
@@ -566,7 +675,7 @@ function Threads({ projectId, compact }: { projectId: string | null; compact?: b
       <button className="cl-new" onClick={() => start(projectId)}>
         + New thread
       </button>
-      {!compact && convs.filter(hasTalk).length > 3 && <input className="cl-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search threads" aria-label="Search threads" />}
+      {!compact && convs.filter(hasTalk).length + earlier > 3 && <input className="cl-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search threads" aria-label="Search threads" />}
       {groups.map((g) => (
         <section key={g.id} className="cl-group" data-state={g.id}>
           {g.id === 'resolved' ? (
@@ -581,6 +690,7 @@ function Threads({ projectId, compact }: { projectId: string | null; compact?: b
           {(g.id !== 'resolved' || showResolved || !!find) && <ul>{g.list.map(row)}</ul>}
         </section>
       ))}
+      <Earlier projectId={projectId} find={find} />
     </nav>
   )
 }
@@ -666,7 +776,7 @@ export function ClaudeFull() {
             <p>{project ? `${project.repo} · ${project.reason}` : 'Questions about every site at once. Pick a project on the left to have Claude work in its folder.'}</p>
           </div>
           <div className="cl-head-acts">
-            {conv && hasTalk(conv) && !conv.speaking && (
+            {conv && hasTalk(conv) && !conv.speaking && !conv.origin && (
               <button className="cl-tool" onClick={() => useClaude.getState().resolve(conv.id, conv.status !== 'resolved')} title={conv.status === 'resolved' ? 'Open this thread again' : 'Mark this thread finished'}>
                 {conv.status === 'resolved' ? 'Reopen' : '✓ Resolve'}
               </button>

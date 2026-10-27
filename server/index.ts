@@ -7,6 +7,7 @@ import { ghInstalled, ghToken, githubAuth, loadConfig, loadSettings, projectSett
 import { GitHub, listRepos, loadChange, loadRepo, whoami, type RepoData, type RepoInfo } from './github.ts'
 import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
 import { scanLocalSessions, type LocalSession } from './claude.ts'
+import { historyFor, historyThread, importExport, listExports, removeExport } from './history.ts'
 import { ask, findClaude, permissionMode, runClaude, stopAll, titleFor } from './assistant.ts'
 import { changePrompt } from '../src/data/describe.ts'
 import { deleteConversation, host, listConversations, loadShared, oneDriveSuggestion, saveConversation, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
@@ -916,6 +917,38 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       if (!c || typeof c.id !== 'string' || !/^[\w-]{1,64}$/.test(c.id)) return json(res, 400, { error: 'bad conversation' })
       if (body.delete === true) deleteConversation(c.id)
       else saveConversation({ ...c, updated: Number(c.updated) || Date.now() })
+      return json(res, 200, { ok: true })
+    }
+
+    case 'GET /api/history':
+      // earlier threads for a site's Claude chat: project exports and sessions on this computer
+      return json(res, 200, { threads: historyFor(url.searchParams.get('project') || null, engine.projects) })
+
+    case 'GET /api/history/thread': {
+      const messages = historyThread(url.searchParams.get('id') ?? '')
+      return messages ? json(res, 200, { messages }) : json(res, 404, { error: 'That thread isn’t here any more' })
+    }
+
+    case 'GET /api/history/exports':
+      return json(res, 200, { exports: listExports(engine.projects) })
+
+    case 'POST /api/history/import': {
+      const data = await readRaw(req, 60 * 1024 * 1024)
+      if (!data) return json(res, 413, { error: 'That file is too big' })
+      let raw: unknown = null
+      try {
+        raw = JSON.parse(data.toString('utf8'))
+      } catch {
+        /* not JSON */
+      }
+      const out = importExport(raw)
+      return json(res, 'error' in out ? 400 : 200, out)
+    }
+
+    case 'POST /api/history/remove': {
+      const body = await readBody(req)
+      if (typeof body.id !== 'string') return json(res, 400, { error: 'bad id' })
+      removeExport(body.id)
       return json(res, 200, { ok: true })
     }
 
