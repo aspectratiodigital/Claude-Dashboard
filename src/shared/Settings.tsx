@@ -29,7 +29,6 @@ const THEMES: [Theme, string, string][] = [
   ['blueprint', 'Blueprint', 'Drafting blue with yellow marks'],
   ['light', 'Light', 'Off-white with near-black lines'],
   ['dark', 'Dark', 'Off-black with soft white lines'],
-  ['mini', 'Mini', 'Mini Motorways style: a city you can edit'],
 ]
 
 export function tokenLink(owner: string, write = false) {

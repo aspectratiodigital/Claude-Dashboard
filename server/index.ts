@@ -9,7 +9,7 @@ import { checkHealth, discoverPages, inspectPage, runPsi } from './health.ts'
 import { scanLocalSessions, type LocalSession } from './claude.ts'
 import { ask, findClaude, permissionMode, runClaude, stopAll, titleFor } from './assistant.ts'
 import { changePrompt } from '../src/data/describe.ts'
-import { deleteConversation, host, listConversations, loadMini, loadShared, oneDriveSuggestion, saveConversation, saveMini, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
+import { deleteConversation, host, listConversations, loadShared, oneDriveSuggestion, saveConversation, savePrefs, saveSharedProjects, seedSyncFolder, syncDir, type StoredConversation } from './sync.ts'
 import { blankStore, cleanDomain, loadCatalog, loadProduct, loadStore, type ShopifyCred } from './shopify.ts'
 import { MAX_UPLOAD, UPLOADS, WORKSPACE, openOnDesktop, opensSafely, readRaw, saveUpload, sendFile, uploadPath, within } from './files.ts'
 import { addKnowledgeFile, knowledgeDir, knowledgeFor, readKnowledge, removeKnowledgeFile, saveInstructions } from './knowledge.ts'
@@ -923,18 +923,6 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       const body = await readBody(req)
       const pick = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
       savePrefs({ theme: pick('theme'), font: pick('font'), cars: typeof body.cars === 'boolean' ? body.cars : undefined, model: pick('model'), effort: pick('effort'), permission: pick('permission'), at: Number(body.at) || Date.now() })
-      return json(res, 200, { ok: true })
-    }
-
-    case 'GET /api/mini':
-      // the Mini theme's maps: the newest of this computer's copy and the sync folder's
-      return json(res, 200, loadMini())
-
-    case 'POST /api/mini': {
-      const body = await readBody(req, 4_000_000)
-      const map = body.map as { at?: unknown; edited?: unknown } | undefined
-      if ((body.world !== 'demo' && body.world !== 'live') || !map || typeof map !== 'object' || typeof map.at !== 'number') return json(res, 400, { error: 'bad map' })
-      saveMini(body.world, map as { at: number; edited?: boolean })
       return json(res, 200, { ok: true })
     }
 
