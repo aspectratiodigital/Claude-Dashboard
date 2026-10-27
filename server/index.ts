@@ -634,7 +634,7 @@ function readBody(req: IncomingMessage, limit = 100_000): Promise<Record<string,
   })
 }
 
-/** Only the dashboard itself may change settings: no cross-site requests. */
+/** Only the dashboard itself may use the API: no cross-site requests. */
 function sameOrigin(req: IncomingMessage) {
   // Only answer to the dashboard's own address (guards against DNS rebinding).
   const host = (req.headers.host ?? '').replace(/:\d+$/, '')
@@ -657,7 +657,9 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
   if (!url.pathname.startsWith('/api/')) return next()
   engine.start()
   const route = `${req.method} ${url.pathname}`
-  if (req.method === 'POST' && !sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
+  // Every route, reads included: snapshots, synced Claude threads and project
+  // notes are private, and a DNS-rebinding page could otherwise read them.
+  if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
 
   switch (route) {
     case 'GET /api/snapshot':
@@ -725,7 +727,6 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
 
     case 'GET /api/file': {
       // a file Claude made (or you attached), for a preview or a download
-      if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
       const file = within(url.searchParams.get('path') ?? '', fileRoots())
       if (!file) return json(res, 404, { error: 'That file isn’t in one of your project folders' })
       return sendFile(res, file, url.searchParams.get('download') === '1')
@@ -767,7 +768,6 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
 
     case 'POST /api/claude/skill': {
       // add a skill: a SKILL.md, a .zip / .skill (raw body, ?file=name), or one written here (JSON)
-      if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
       const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
       const folder = url.searchParams.get('scope') === 'project' ? (p ? engine.folderFor(p) : null) : null
       if (url.searchParams.get('scope') === 'project' && !folder) return json(res, 400, { error: 'Set this project’s folder in Settings first' })
@@ -793,7 +793,6 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
     }
 
     case 'POST /api/claude/skill/remove': {
-      if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
       const body = await readBody(req)
       const p = engine.projects.find((x) => x.id === body.project)
       const folder = body.scope === 'project' ? (p ? engine.folderFor(p) : null) : null
@@ -837,7 +836,6 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
     case 'GET /api/shopify/products':
     case 'GET /api/shopify/product': {
       // a store's products (or one product, opened up), read when you open the products view
-      if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
       const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
       const domain = p?.store?.domain
       const cred = domain ? loadSettings().shopifyTokens?.[domain] : null
