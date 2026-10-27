@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BlueprintScene, LETTERS, useLots, type Lot } from './Scene'
 import { PART_NAME, useBp } from './state'
 import type { Project, Thread } from '../../data/types'
@@ -16,9 +16,6 @@ import { NoteChip } from '../../shared/pulse'
 import { ChecksList, Links, PageDetail, Score, ThreadItem } from '../../shared/sheet'
 import { StoreConnect, StorePanel, storeLine } from './Store'
 import { AppFloorView } from './AppFloors'
-import { useTier } from '../../shared/quality'
-import { MiniScene } from '../mini/MiniScene'
-import { MiniHud, MiniTags, useSiteColor } from '../mini/MiniUI'
 import './blueprint.css'
 
 const ROWS = ['1', '2', '3', '4', '5']
@@ -26,10 +23,6 @@ const ROWS = ['1', '2', '3', '4', '5']
 export default function Blueprint() {
   const selectedId = useApp((s) => s.selectedId)
   const dissect = useBp((s) => s.dissect)
-  // the Mini theme swaps the drawing for a little city you can edit (concepts/mini)
-  const mini = useApp((s) => s.theme === 'mini')
-  const tier = useTier()
-  const shadows = mini && tier !== 'battery'
   const lots = useLots()
   const turn = useRef(0)
   const [heading, setHeading] = useState(0)
@@ -74,47 +67,29 @@ export default function Blueprint() {
   }, [])
 
   return (
-    <div className="bp" data-selected={!!selectedId} data-dissect={dissect} data-mini={mini}>
+    <div className="bp" data-selected={!!selectedId} data-dissect={dissect}>
       <SceneCanvas
-        key={mini ? `mini-${shadows}` : 'plan'}
         className="bp-canvas"
         flat
-        shadows={shadows ? 'percentage' : false}
         onPointerDown={(e) => (downAt.current = { x: e.clientX, y: e.clientY })}
-        onPointerMissed={
-          mini
-            ? undefined
-            : (e) => {
-                // a click on empty ground closes an opened building, or else clears the selection; a drag (pan) doesn't
-                const moved = Math.hypot(e.clientX - downAt.current.x, e.clientY - downAt.current.y)
-                if (e.button !== 0 || moved >= 6) return
-                if (useBp.getState().dissect) useBp.getState().setDissect(false)
-                else useApp.getState().select(null)
-              }
-        }
+        onPointerMissed={(e) => {
+          // a click on empty ground closes an opened building, or else clears the selection; a drag (pan) doesn't
+          const moved = Math.hypot(e.clientX - downAt.current.x, e.clientY - downAt.current.y)
+          if (e.button !== 0 || moved >= 6) return
+          if (useBp.getState().dissect) useBp.getState().setDissect(false)
+          else useApp.getState().select(null)
+        }}
       >
-        {mini ? <MiniScene turn={turn} /> : <BlueprintScene turn={turn} />}
+        <BlueprintScene turn={turn} />
       </SceneCanvas>
 
       <LabelLayer>
-        {mini ? <MiniTags /> : lots.map((l) => <Tag key={l.project.id} lot={l} />)}
-        {dissect && selectedId && !mini && <PartLabels id={selectedId} />}
+        {lots.map((l) => (
+          <Tag key={l.project.id} lot={l} />
+        ))}
+        {dissect && selectedId && <PartLabels id={selectedId} />}
       </LabelLayer>
 
-      {mini ? <MiniHud /> : <Plan />}
-      <Compass heading={heading} rotate={rotate} />
-      {selectedId && <Callout key={selectedId} id={selectedId} lots={lots} />}
-      <Notes />
-      {!mini && <TitleBlock />}
-      <ClaudeFull />
-    </div>
-  )
-}
-
-/** The drawing sheet's frame, title and key. */
-function Plan() {
-  return (
-    <>
       <div className="bp-sheet" aria-hidden>
         <div className="bp-ruler top">
           {LETTERS.slice(0, 8)
@@ -148,7 +123,12 @@ function Plan() {
       </header>
 
       <Legend />
-    </>
+      <Compass heading={heading} rotate={rotate} />
+      {selectedId && <Callout key={selectedId} id={selectedId} lots={lots} />}
+      <Notes />
+      <TitleBlock />
+      <ClaudeFull />
+    </div>
   )
 }
 
@@ -305,12 +285,10 @@ function Callout({ id, lots }: { id: string; lots: Lot[] }) {
   const claude = useBp((s) => s.claude)
   const setDissect = useBp((s) => s.setDissect)
   const setClaude = useBp((s) => s.setClaude)
-  // in the Mini theme the bubble takes the building's colour
-  const tint = useSiteColor(useApp((s) => (s.theme === 'mini' ? id : null)))
   if (!p || !lot) return null
   const mode = claude ? 'claude' : dissect ? 'section' : 'detail'
   return (
-    <aside className="bp-callout" data-dissect={dissect} data-mode={mode} key={mode} style={tint ? ({ '--tint': tint } as CSSProperties) : undefined}>
+    <aside className="bp-callout" data-dissect={dissect} data-mode={mode} key={mode}>
       <header>
         <span className="bp-bubble">{lot.letter}</span>
         <div>

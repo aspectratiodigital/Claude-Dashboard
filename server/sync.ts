@@ -183,31 +183,3 @@ export function saveSharedProjects(projects: Record<string, ProjectOverride>) {
   for (const [k, { folder: _, ...v }] of Object.entries(projects)) next[k] = { ...next[k], ...v }
   saveShared({ projects: next })
 }
-
-// --- The Mini theme's map (one for the demo projects, one for yours) ------------------------------
-
-type MiniMaps = Record<string, { at: number; edited?: boolean }>
-
-const MINI_FILE = path.join(DATA_DIR, 'mini-map.json')
-const miniIn = (dir: string) => path.join(dir, 'mini-map.json')
-
-/** A map you've changed beats one the app laid out by itself; then the newest wins. */
-const beats = (a: MiniMaps[string] | undefined, b: MiniMaps[string] | undefined) => !!a && (!b || (!!a.edited && !b.edited) || (!!a.edited === !!b.edited && a.at > b.at))
-
-/** This computer's maps, swapped for the sync folder's wherever that copy is newer. */
-export function loadMini(): MiniMaps {
-  const mine = readJson<MiniMaps>(MINI_FILE, {})
-  const dir = syncDir()
-  if (!dir) return mine
-  for (const [world, m] of Object.entries(readJson<MiniMaps>(miniIn(dir), {}))) if (beats(m, mine[world])) mine[world] = m
-  return mine
-}
-
-export function saveMini(world: string, map: MiniMaps[string]) {
-  const mine = readJson<MiniMaps>(MINI_FILE, {})
-  if (beats(map, mine[world])) writeJsonNow(MINI_FILE, { ...mine, [world]: map })
-  const dir = syncDir()
-  if (!dir) return
-  const there = readJson<MiniMaps>(miniIn(dir), {})
-  if (beats(map, there[world])) writeJsonNow(miniIn(dir), { ...there, [world]: map })
-}

@@ -3,8 +3,7 @@ import { create } from 'zustand'
 export type Device = 'desktop' | 'mobile'
 export type Source = 'live' | 'preview' | 'local'
 export type Quality = 'auto' | 'high' | 'balanced' | 'battery'
-export type Theme = 'blueprint' | 'light' | 'dark' | 'mini'
-export const THEME_IDS: Theme[] = ['blueprint', 'light', 'dark', 'mini']
+export type Theme = 'blueprint' | 'light' | 'dark'
 export type Font = 'blueprint' | 'jetbrains' | 'grotesk' | 'inter' | 'hud' | 'system'
 
 /** UI fonts for Settings > Appearance: body text and headings (code stays monospace). */
@@ -77,7 +76,7 @@ export const useApp = create<State>((set) => ({
   settingsOpen: false,
   showFps: false,
   quality: load<Quality>('ard.quality', (v) => ['auto', 'high', 'balanced', 'battery'].includes(v), 'auto'),
-  theme: load<Theme>('ard.theme', (v) => THEME_IDS.includes(v as Theme), 'blueprint'),
+  theme: load<Theme>('ard.theme', (v) => ['blueprint', 'light', 'dark'].includes(v), 'blueprint'),
   font: load<Font>('ard.font', (v) => FONTS.some((f) => f.id === v), 'blueprint'),
   cars: load<'on' | 'off'>('ard.cars', (v) => v === 'on' || v === 'off', 'on') === 'on',
   stage: null,
