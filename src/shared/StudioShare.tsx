@@ -48,12 +48,14 @@ async function framed(shot: Blob, o: { frame: Frame; device: 'phone' | 'tablet' 
     let sy = 0
     const phone = o.frame === 'device' && o.device !== 'laptop'
     const laptop = o.frame === 'device' && o.device === 'laptop'
+    // a phone's status bar sits above the page, as on a real phone, so the camera doesn't cover the page's top
+    const status = phone && o.device === 'phone' ? 50 * s : 0
     if (phone) {
       const b = (o.device === 'phone' ? 14 : 20) * s
       bodyW = W + b * 2
-      bodyH = H + b * 2
+      bodyH = H + status + b * 2
       sx = b
-      sy = b
+      sy = b + status
     } else if (laptop) {
       const b = 16 * s
       bodyW = W + b * 2
@@ -109,19 +111,41 @@ async function framed(shot: Blob, o: { frame: Frame; device: 'phone' | 'tablet' 
     }
     // the page itself, with rounded screen corners inside a device
     x.save()
-    roundRect(x, left + sx, top + sy, W, H, phone ? (o.device === 'phone' ? 40 : 18) * s : o.frame === 'browser' ? 0 : laptop ? 4 * s : 0)
+    roundRect(x, left + sx, top + sy - status, W, H + status, phone ? (o.device === 'phone' ? 40 : 18) * s : o.frame === 'browser' ? 0 : laptop ? 4 * s : 0)
     if (o.frame === 'browser') {
       x.beginPath()
       x.roundRect(left, top + sy, W, H, [0, 0, 12 * s, 12 * s])
     }
     x.clip()
+    let ink = '#111214'
+    if (status) {
+      // the status bar takes the colour of the page's top edge
+      const px = document.createElement('canvas')
+      px.width = px.height = 1
+      const pc = px.getContext('2d')!
+      pc.drawImage(img, 0, 0, W, Math.min(H, 4 * s), 0, 0, 1, 1)
+      const [r, g, bl] = pc.getImageData(0, 0, 1, 1).data
+      x.fillStyle = `rgb(${r},${g},${bl})`
+      x.fillRect(left + sx, top + sy - status, W, status)
+      ink = 0.299 * r + 0.587 * g + 0.114 * bl > 140 ? '#111214' : '#ffffff'
+    }
     x.drawImage(img, left + sx, top + sy)
     x.restore()
-    if (phone && o.device === 'phone') {
-      // the camera
+    if (status) {
+      // the camera, the time and the battery
+      const mid = top + sy - status / 2 + 2 * s
       x.fillStyle = '#111214'
-      roundRect(x, left + bodyW / 2 - 52 * s, top + sy + 10 * s, 104 * s, 30 * s, 15 * s)
+      roundRect(x, left + bodyW / 2 - 52 * s, mid - 15 * s, 104 * s, 30 * s, 15 * s)
       x.fill()
+      x.fillStyle = ink
+      x.font = `600 ${15 * s}px system-ui, sans-serif`
+      x.textAlign = 'center'
+      x.textBaseline = 'middle'
+      x.fillText('9:41', left + sx + 52 * s, mid)
+      x.globalAlpha = 0.9
+      roundRect(x, left + sx + W - 62 * s, mid - 6 * s, 24 * s, 12 * s, 3.5 * s)
+      x.fill()
+      x.globalAlpha = 1
     }
     if (laptop) {
       x.fillStyle = '#c9ccd3'
@@ -281,7 +305,7 @@ export function ShotDialog({ ctx, size, onClose }: { ctx: StudioCtx; size: { w: 
           <Toggle on={sharp} onChange={setSharp}>
             Sharp (twice the pixels)
           </Toggle>
-          <Toggle on={edits} onChange={setEdits} disabled={!ctx.ops.length}>
+          <Toggle on={edits && ctx.ops.length > 0} onChange={setEdits} disabled={!ctx.ops.length}>
             With my unsaved edits{ctx.ops.length ? ` (${ctx.ops.length})` : ''}
           </Toggle>
           <p className="st-tip">Taken from Studio’s copy of {ctx.path === '/' ? 'the home page' : ctx.path}, with saved edits that aren’t live yet.</p>
