@@ -18,7 +18,8 @@ import { unzip } from './zip.ts'
 import { appRootOf, assetBytes, imagesOf, loadAppMap } from './appmap.ts'
 import { appShot } from './shots.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
-import { closeSite, openSite, reapIdle, stopStudio, studioState, touch } from './studio.ts'
+import { askClaude, closeSite, diffOf, discard, openSite, publish, reapIdle, saveOps, stopStudio, studioState, touch } from './studio.ts'
+import type { StudioElement, StudioOp } from '../src/data/types.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
 // The local API behind the dashboard. It runs inside the Vite dev server,
@@ -652,6 +653,19 @@ function sameOrigin(req: IncomingMessage) {
   }
 }
 
+const OP_KINDS = new Set(['text', 'image', 'move', 'order', 'link', 'alt', 'duplicate', 'hide', 'add-image'])
+
+/** A canvas edit from the browser, checked before it goes anywhere near the repo or a prompt. */
+function validOp(o: unknown): o is StudioOp {
+  if (!o || typeof o !== 'object') return false
+  const x = o as Record<string, unknown>
+  const str = (k: string, max = 2000) => typeof x[k] === 'string' && (x[k] as string).length <= max
+  if (!OP_KINDS.has(x.kind as string) || !str('id', 40) || !str('page', 400) || !str('selector', 1000) || !str('label', 200) || !str('text', 2000)) return false
+  if (x.kind === 'image' || x.kind === 'add-image') return str('upload', 40) && /^[a-z0-9]{6,24}$/.test(x.upload as string)
+  if (x.kind === 'move') return Number.isFinite(x.dx) && Number.isFinite(x.dy) && Number.isFinite(x.width) && Array.isArray(x.snapped)
+  return true
+}
+
 const NOTE_KINDS: NoteKind[] = ['build', 'build-ok', 'build-fail', 'deploying', 'deployed', 'deploy-fail', 'issue', 'pr', 'merged', 'review', 'push', 'claude', 'down', 'up', 'perf', 'order', 'stock']
 
 export async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
@@ -823,6 +837,52 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       const p = engine.projects.find((x) => x.id === body.projectId)
       if (!p) return json(res, 404, { error: 'No project by that id' })
       return json(res, 200, openSite(p, (await githubAuth()).token, { sync: body.sync === true }))
+    }
+
+    case 'POST /api/studio/save': {
+      // edits made on the canvas, saved into the site's source (Claude places the tricky ones)
+      const body = await readBody(req, 400_000)
+      const p = engine.projects.find((x) => x.id === body.projectId)
+      if (!p) return json(res, 404, { error: 'No project by that id' })
+      const ops = Array.isArray(body.ops) ? (body.ops as unknown[]).filter(validOp).slice(0, 200) : []
+      if (!ops.length) return json(res, 400, { error: 'No edits to save' })
+      const out = saveOps(p, ops, await findClaude(loadSettings().claudePath))
+      return 'error' in out ? json(res, 409, out) : json(res, 200, out)
+    }
+
+    case 'POST /api/studio/claude': {
+      // a change asked for in words, made by Claude in Studio's copy of the site
+      const body = await readBody(req, 100_000)
+      const p = engine.projects.find((x) => x.id === body.projectId)
+      const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 4000) : ''
+      if (!p || !prompt) return json(res, 400, { error: 'Say what to change' })
+      const el = body.element && typeof body.element === 'object' ? (body.element as StudioElement) : null
+      const out = askClaude(p, prompt, { page: String(body.page ?? '/').slice(0, 300), element: el, width: Number(body.width) || 0 }, await findClaude(loadSettings().claudePath))
+      return 'error' in out ? json(res, 409, out) : json(res, 200, out)
+    }
+
+    case 'GET /api/studio/diff': {
+      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
+      if (!p) return json(res, 404, { error: 'No project by that id' })
+      return json(res, 200, { diff: await diffOf(p) })
+    }
+
+    case 'POST /api/studio/publish': {
+      // push the saved edits live (one commit on the default branch), or as a draft branch
+      const body = await readBody(req)
+      const p = engine.projects.find((x) => x.id === body.projectId)
+      if (!p) return json(res, 404, { error: 'No project by that id' })
+      const token = (await ghToken()) ?? (await githubAuth()).token
+      const out = publish(p, token, { draft: body.draft === true, login: engine.login, exe: await findClaude(loadSettings().claudePath) })
+      return 'error' in out ? json(res, 409, out) : json(res, 200, out)
+    }
+
+    case 'POST /api/studio/discard': {
+      const body = await readBody(req)
+      const p = engine.projects.find((x) => x.id === body.projectId)
+      if (!p) return json(res, 404, { error: 'No project by that id' })
+      const out = discard(p)
+      return 'error' in out ? json(res, 409, out) : json(res, 200, out)
     }
 
     case 'POST /api/studio/close': {
