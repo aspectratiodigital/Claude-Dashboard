@@ -18,6 +18,7 @@ import { unzip } from './zip.ts'
 import { appRootOf, assetBytes, imagesOf, loadAppMap } from './appmap.ts'
 import { appShot } from './shots.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
+import { closeSite, openSite, reapIdle, stopStudio, studioState, touch } from './studio.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
 // The local API behind the dashboard. It runs inside the Vite dev server,
@@ -131,6 +132,7 @@ class Engine {
     this.timers.push(setInterval(() => this.scanSessions(), 20_000))
     this.timers.push(setInterval(() => this.ping(), 25_000))
     this.timers.push(setInterval(() => this.shops().catch((e) => log('shop checks failed', e)), 30_000))
+    this.timers.push(setInterval(reapIdle, MIN))
     setTimeout(() => this.sites().catch(() => {}), 4000)
     setTimeout(() => this.shops(true).catch(() => {}), 3000)
   }
@@ -807,6 +809,28 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       return json(res, 200, await addSuggested(exe, String(body.id ?? '')))
     }
 
+    case 'GET /api/studio': {
+      // where a site is up to in Studio: downloading, building, ready (with its preview port)
+      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
+      if (!p) return json(res, 404, { error: 'No project by that id' })
+      touch(p.id)
+      return json(res, 200, studioState(p))
+    }
+
+    case 'POST /api/studio/open': {
+      // open a site in Studio (sync: true pulls the latest from GitHub again)
+      const body = await readBody(req)
+      const p = engine.projects.find((x) => x.id === body.projectId)
+      if (!p) return json(res, 404, { error: 'No project by that id' })
+      return json(res, 200, openSite(p, (await githubAuth()).token, { sync: body.sync === true }))
+    }
+
+    case 'POST /api/studio/close': {
+      const body = await readBody(req)
+      if (typeof body.projectId === 'string') closeSite(body.projectId)
+      return json(res, 200, { ok: true })
+    }
+
     case 'POST /api/refresh':
       engine.tick(true).catch(() => {})
       return json(res, 202, { ok: true })
@@ -985,6 +1009,7 @@ export function startEngine() {
 export function stopEngine() {
   engine.stop()
   stopAll()
+  stopStudio()
 }
 
 export function jarvisApi(): Plugin {

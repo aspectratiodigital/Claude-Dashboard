@@ -8,6 +8,7 @@ import { FpsMeter } from './shared/FpsMeter'
 import { NotesDrawer, Toasts, Tray } from './shared/Notifications'
 import { Settings } from './shared/Settings'
 import { Stage } from './shared/Preview'
+import { Studio } from './shared/Studio'
 import { useTier } from './shared/quality'
 import './app.css'
 import './shared/shell.css'
@@ -29,6 +30,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (useApp.getState().studio) return // Studio has its own keys
       const typing = (e.target as HTMLElement)?.closest?.('input, textarea, select')
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -63,6 +65,7 @@ export default function App() {
       <Settings />
       <CommandPalette />
       <Stage />
+      <Studio />
       <FpsMeter />
     </div>
   )

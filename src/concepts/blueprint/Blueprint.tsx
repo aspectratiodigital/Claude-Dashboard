@@ -39,14 +39,14 @@ export default function Blueprint() {
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest('input, textarea, select') || useApp.getState().stage || document.querySelector('.ap-box')) return
+      if ((e.target as HTMLElement).closest('input, textarea, select') || useApp.getState().stage || useApp.getState().studio || document.querySelector('.ap-box')) return
       if (e.key === 'q' || e.key === 'Q') rotate(-1)
       if (e.key === 'e' || e.key === 'E') rotate(1)
       if (e.key === 'Enter' && useApp.getState().selectedId) useBp.getState().setDissect(true)
     }
     // Escape closes the section first, then the selection (capture so it runs before the app's handler)
     const esc = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || useApp.getState().stage || useApp.getState().settingsOpen || useApp.getState().notesOpen || document.querySelector('.ap-box')) return
+      if (e.key !== 'Escape' || useApp.getState().stage || useApp.getState().studio || useApp.getState().settingsOpen || useApp.getState().notesOpen || document.querySelector('.ap-box')) return
       if (useClaude.getState().full) {
         e.stopImmediatePropagation()
         useClaude.getState().closeFull()
@@ -365,6 +365,11 @@ function Overview({ project: p, floors, onOpen, onClaude }: { project: Project; 
       <button className="bp-open" onClick={onOpen}>
         Open up the building <span>or click it again</span>
       </button>
+      {p.kind !== 'app' && (
+        <button className="bp-open" onClick={() => useApp.getState().openStudio(p.id)}>
+          Edit in Studio <span>text, photos and layout, at any screen size</span>
+        </button>
+      )}
       <section className="bp-claude-cta">
         <h4>Claude</h4>
         <p className="bp-help">

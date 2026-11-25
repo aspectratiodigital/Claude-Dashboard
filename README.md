@@ -199,6 +199,18 @@ Open a project and you get a large desktop preview and a phone preview side by s
 
 ![Fullscreen mobile preview](docs/screenshots/stage.jpg)
 
+## Studio
+
+**Studio** is the visual site builder. Open it from a building's details (**Edit in Studio**) or the command palette (`Ctrl K`, then a site's name and "edit in Studio").
+
+- **Every website, from its latest commit.** Studio keeps its own copy of each site's repo in the app's data folder (`studio/`), separate from your working folders, and pulls the latest from the default branch each time you open a site or press the refresh button. The line under the toolbar says which commit you're looking at.
+- **How each site runs:** plain HTML sites (Aspect Ratio Digital, BAU Drinks) are served as they are. Sites built from data files (Kings Hill Dental, Optisoul, Diplomats of Sound) run their own build script first. Astro sites (Chai Wallahs, Grassroots Rising) install their packages the first time (a minute or two) and then run Astro's dev server, which Studio stops again after 20 minutes unused. Shopify themes (Babiators) open the live shop instead for now, and apps aren't listed.
+- **Screen sizes:** Mobile (390 × 844), Tablet (820 × 1180) and Laptop (1440 × 900), or **Custom**: type a width and height, or a ratio like `16:9` or `21:9` to set the height from the width. Turn any size sideways, zoom to fit or to 50, 75 or 100%, and put a second size beside the first to compare.
+- **Pages:** pick from every page Studio finds in the repo, type an address, or just click through the site in **Browse** mode.
+- **Select** (`V`): outlines what's under the pointer and shows what you click: its text or image, alt text, link, size, font and colours. Clicking a word in a heading selects the whole heading; hold `Alt` to select exactly what's under the pointer. `H` goes back to Browse, `Esc` steps back and then closes Studio.
+
+Previews are served on `127.0.0.1` only, never your network, and only the site's own files (no `.git` or dotfiles). Studio uses the GitHub token from Settings to download private repos, passed to git through the environment so it's never written into the copy's `.git/config`.
+
 ## Notifications
 
 Changes are spotted as the data refreshes (about once a minute) and appear in three places at once: a toast at the top, the bell's history drawer (press `N`), and an effect on that building. The drawer has a **Preview a notification** panel so you can fire any kind on any project and see how it looks. Click its heading to shrink it down out of the way, and again to bring it back.
@@ -209,7 +221,7 @@ The kinds: build started, passed or failed; deploying, deployed or deploy failed
 
 | Key | Action |
 | --- | --- |
-| `Ctrl K` | Command palette: jump to any project or preview |
+| `Ctrl K` | Command palette: jump to any project, preview or Studio |
 | `N` | Notifications |
 | `Esc` | Close the fullscreen preview, then the open project |
 | `F` | Frame-rate meter |
