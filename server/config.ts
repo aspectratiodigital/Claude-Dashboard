@@ -44,6 +44,85 @@ export interface Settings {
   syncDir?: string
   /** Shopify access by store domain (an Admin API token, or a Dev Dashboard app's client ID + secret): this computer only, never synced */
   shopifyTokens?: Record<string, string | { id: string; secret: string } | null>
+  /** Studio's connections: stock photo keys, a Google service account, and per-site hosting and analytics */
+  studio?: StudioSettings
+}
+
+export interface StudioKrystal {
+  /** the cPanel server, e.g. uk1.krystal.uk */
+  host: string
+  user: string
+  /** a cPanel API token (Manage API Tokens in cPanel) */
+  token: string
+  /** the repository's folder in cPanel's Git Version Control, e.g. /home/user/repositories/site */
+  repoRoot: string
+  /** the branch cPanel deploys (the site's default branch when empty) */
+  branch?: string
+}
+
+export interface StudioSiteSettings {
+  /** the Search Console property: sc-domain:example.com or https://www.example.com/ */
+  searchConsole?: string
+  /** the GA4 property id (numbers) */
+  ga4?: string
+  krystal?: StudioKrystal
+}
+
+export interface StudioSettings {
+  unsplashKey?: string
+  pexelsKey?: string
+  /** a Google Cloud service account's key file (JSON), for Search Console and Analytics */
+  google?: { client_email: string; private_key: string; project_id?: string }
+  sites?: Record<string, StudioSiteSettings>
+}
+
+/** Studio's settings with every secret left out, for the browser */
+export function studioPublic(projectId?: string) {
+  const s = loadSettings().studio ?? {}
+  const site = projectId ? s.sites?.[projectId] : undefined
+  return {
+    unsplash: !!s.unsplashKey,
+    pexels: !!s.pexelsKey,
+    google: s.google ? s.google.client_email : null,
+    site: site
+      ? {
+          searchConsole: site.searchConsole ?? '',
+          ga4: site.ga4 ?? '',
+          krystal: site.krystal ? { host: site.krystal.host, user: site.krystal.user, repoRoot: site.krystal.repoRoot, branch: site.krystal.branch ?? '', token: !!site.krystal.token } : null,
+        }
+      : null,
+  }
+}
+
+/** merge a change into Studio's settings: empty strings clear a value, null removes a site's Krystal connection */
+export function saveStudioSettings(patch: { unsplashKey?: string; pexelsKey?: string; google?: StudioSettings['google'] | null; site?: { id: string; searchConsole?: string; ga4?: string; krystal?: Partial<StudioKrystal> | null } }) {
+  const cur = loadSettings().studio ?? {}
+  const next: StudioSettings = { ...cur, sites: { ...(cur.sites ?? {}) } }
+  for (const k of ['unsplashKey', 'pexelsKey'] as const) {
+    if (typeof patch[k] === 'string') {
+      if (patch[k]) next[k] = patch[k]
+      else delete next[k]
+    }
+  }
+  if (patch.google === null) delete next.google
+  else if (patch.google) next.google = patch.google
+  if (patch.site) {
+    const { id, krystal, ...rest } = patch.site
+    const site: StudioSiteSettings = { ...(next.sites![id] ?? {}) }
+    for (const [k, v] of Object.entries(rest) as [keyof typeof rest, string | undefined][]) {
+      if (typeof v !== 'string') continue
+      if (v) site[k] = v
+      else delete site[k]
+    }
+    if (krystal === null) delete site.krystal
+    else if (krystal) {
+      const was = site.krystal
+      // the token stays as it was unless a new one is given
+      site.krystal = { host: krystal.host ?? was?.host ?? '', user: krystal.user ?? was?.user ?? '', token: krystal.token || was?.token || '', repoRoot: krystal.repoRoot ?? was?.repoRoot ?? '', branch: krystal.branch ?? was?.branch }
+    }
+    next.sites![id] = site
+  }
+  saveSettings({ studio: next })
 }
 
 const DEFAULTS: Config = {

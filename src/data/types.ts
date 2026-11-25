@@ -413,12 +413,20 @@ export interface StudioSite {
   pages: StudioPage[]
   /** whether the site has a robots.txt and a sitemap */
   seo: StudioSeoSite | null
+  /** pages with saved edits waiting to go live, for the checks and before-and-after shots */
+  touched: string[]
+  /** how new photos are made web-ready: the site's own image script, Astro's image pipeline, or plain files */
+  pipeline: 'script' | 'astro' | 'files'
+  /** a push live booked for later */
+  schedule: { at: string; by: string } | null
+  /** how long the last open took, ms (when Studio could skip the build, it's quick) */
+  openedMs: number | null
   /** the outcome of the last save, Claude request, publish or discard */
   last: StudioResult | null
 }
 
 export interface StudioResult {
-  kind: 'save' | 'claude' | 'publish' | 'discard'
+  kind: 'save' | 'claude' | 'publish' | 'discard' | 'revert' | 'content' | 'photos' | 'deploy'
   ok: boolean
   /** what happened, in plain words (Claude's own summary for Claude's work) */
   text: string
@@ -431,8 +439,10 @@ export interface StudioResult {
 
 /** One change made on the canvas, waiting to be saved into the site's source. */
 export type StudioOp =
-  | (StudioOpBase & { kind: 'text'; before: string; after: string })
-  | (StudioOpBase & { kind: 'image'; before: string; upload: string; name: string })
+  /** `html` when bold, italic, links or line breaks were added; `everywhere` changes every copy of the words across the site */
+  | (StudioOpBase & { kind: 'text'; before: string; after: string; html?: string; everywhere?: boolean })
+  /** a new photo (`upload`), or one already in the site (`src`, from its photo library) */
+  | (StudioOpBase & { kind: 'image'; before: string; upload?: string; src?: string; name: string; everywhere?: boolean })
   | (StudioOpBase & { kind: 'move'; dx: number; dy: number; width: number; snapped: string[] })
   | (StudioOpBase & { kind: 'order'; direction: 'earlier' | 'later'; sibling: string })
   | (StudioOpBase & { kind: 'link'; before: string; after: string })
@@ -440,9 +450,37 @@ export type StudioOp =
   | (StudioOpBase & { kind: 'duplicate' })
   /** hidden everywhere, or only at screen sizes like the one it was hidden on */
   | (StudioOpBase & { kind: 'hide'; scope: 'everywhere' | 'this-size'; width: number })
-  | (StudioOpBase & { kind: 'add-image'; upload: string; name: string; alt: string })
+  | (StudioOpBase & { kind: 'add-image'; upload?: string; src?: string; name: string; alt: string })
   /** the page's search and share details: its <title>, meta description, and social share image */
   | (StudioOpBase & { kind: 'meta'; field: StudioMetaField; before: string; after: string; upload?: string; name?: string })
+  /** CSS on one element, for every screen size or only a range of widths (`media`) */
+  | (StudioOpBase & { kind: 'style'; props: Record<string, string>; before: Record<string, string>; media: StudioMedia | null; width: number })
+  /** an attribute set (after) or removed (after null): button style classes, placeholders, required, animations, video and embed addresses */
+  | (StudioOpBase & { kind: 'attr'; name: string; before: string | null; after: string | null })
+  /** a card or section copied from another page (or this one), pasted after the selected element */
+  | (StudioOpBase & { kind: 'paste'; html: string; from: { page: string; selector: string; label: string; text: string } })
+  | (StudioOpBase & { kind: 'table'; action: 'add-row' | 'remove-row' | 'add-col' | 'remove-col'; row: number; col: number })
+  /** an element's background photo */
+  | (StudioOpBase & { kind: 'bg'; before: string; upload?: string; src?: string; name: string })
+  /** a video file swapped in, or a YouTube, Vimeo or Google Maps embed added after the element */
+  | (StudioOpBase & { kind: 'video'; before: string; upload: string; name: string })
+  | (StudioOpBase & { kind: 'embed'; url: string; src: string; provider: StudioEmbedProvider; title: string })
+  /** a logo or icon swapped for an SVG, keeping the old one's size and colour */
+  | (StudioOpBase & { kind: 'svg'; upload: string; name: string; inline: boolean; before: string; recolour: boolean; markup?: string })
+  /** find and replace across the site's words */
+  | (StudioOpBase & { kind: 'replace'; find: string; replace: string; matchCase: boolean; wholeWord: boolean; scope: 'site' | 'page' })
+  /** one of the site's design tokens (a CSS custom property on :root), for the whole site */
+  | (StudioOpBase & { kind: 'theme'; name: string; before: string; after: string })
+  /** a change described in words, for Claude to make with the batch */
+  | (StudioOpBase & { kind: 'ask'; prompt: string })
+
+/** a range of screen widths, in CSS pixels (either end open) */
+export interface StudioMedia {
+  min?: number
+  max?: number
+}
+
+export type StudioEmbedProvider = 'youtube' | 'vimeo' | 'maps' | 'other'
 
 export type StudioMetaField = 'title' | 'description' | 'og:title' | 'og:description' | 'og:image'
 
@@ -469,6 +507,11 @@ export interface SeoReport {
   /** links to other pages of the site: `statuses` holds each one checked, `checked` once they all are */
   links: { internal: number; external: number; broken: { href: string; status: number }[]; statuses: Record<string, number>; checked: boolean }
   site: StudioSeoSite
+  /** the business's name, phone numbers, emails, address and hours as the page gives them (for the local business check) */
+  nap: { name: string | null; phones: string[]; emails: string[]; address: string | null; hours: string[]; schemaPhone: string | null }
+  /** the first paragraph of the main content, and the page's words (cut short), for the target phrase check */
+  lead: string
+  text: string
 }
 
 /** Site-wide SEO facts Studio reads from the repo (an Astro sitemap only exists after a build). */
@@ -486,6 +529,8 @@ export interface StudioOpBase {
   label: string
   /** the element's text when the edit was made, to help find it in the source */
   text: string
+  /** the edit that created the element (a duplicate or paste), so this one is placed with it */
+  made?: string
 }
 
 /** what the overlay reports about the element you clicked in Select mode */
@@ -494,10 +539,13 @@ export interface StudioElement {
   tag: string
   label: string
   text: string
-  image: { src: string; alt: string; width: number; height: number } | null
+  image: { src: string; alt: string; width: number; height: number; svg: boolean; fit: string; position: string } | null
   href: string | null
   rect: { x: number; y: number; w: number; h: number }
   style: { font: string; color: string; background: string; padding: string; margin: string }
+  /** computed values the Design section starts from */
+  css: Record<string, string>
+  classes: string[]
   children: number
   /** plain text you can edit in place */
   editable: boolean
@@ -506,4 +554,56 @@ export interface StudioElement {
   siblings: number
   /** dragged or nudged away from where the site puts it */
   moved: boolean
+  /** locked against changes on the canvas (it or a parent) */
+  locked: boolean
+  /** the edit made the element (pasted or duplicated), so its own edits go to Claude */
+  made: string | null
+  /** one of a run of matching items (list item, FAQ, card, slide), with where it sits in the run */
+  item: { selector: string; label: string; index: number; count: number; kind: 'list' | 'faq' | 'card' | 'slide' | 'row' | 'item' } | null
+  /** inside a table: the cell's row and column, and the table's size */
+  table: { selector: string; row: number; col: number; rows: number; cols: number } | null
+  /** a button or link styled as one */
+  button: { classes: string; newTab: boolean } | null
+  /** a form field, with its label */
+  field: { type: string; label: string | null; labelSelector: string | null; placeholder: string | null; required: boolean; name: string } | null
+  /** the form it's in, and its thank-you message when the page has one */
+  form: { selector: string; thanks: { selector: string; text: string } | null } | null
+  /** a background photo set in CSS */
+  bg: string | null
+  /** a video file, or an embedded YouTube, Vimeo or Maps frame */
+  media: { kind: 'video' | 'embed'; src: string; provider: StudioEmbedProvider | null } | null
+  /** an entrance animation the site gives it (data-reveal and the like) */
+  animation: { attr: string; value: string } | null
+  /** a grid or row of items, with how many columns it shows */
+  layout: { display: 'grid' | 'flex'; columns: number; items: number } | null
+}
+
+/** One of the site's design tokens, read from its stylesheets. */
+export interface StudioToken {
+  name: string
+  value: string
+  kind: 'colour' | 'size' | 'font' | 'other'
+}
+
+/** What the overlay reads from the site's own styles: tokens, breakpoints, button styles, animations, fonts. */
+export interface StudioDesign {
+  tokens: StudioToken[]
+  /** widths where the layout changes, from the site's @media rules, with how many rules use each */
+  breakpoints: { width: number; kind: 'min' | 'max'; rules: number }[]
+  /** button looks used on the site (class lists), with a sample's colours */
+  buttons: { classes: string; label: string; background: string; color: string; border: string }[]
+  /** entrance animations in use: attribute and the values seen */
+  animations: { attr: string; values: string[] }[]
+  /** font weights each family has loaded */
+  fonts: { family: string; weights: number[] }[]
+}
+
+/** A node of the layers list. */
+export interface StudioLayer {
+  selector: string
+  label: string
+  text: string
+  depth: number
+  children: number
+  hidden: boolean
 }

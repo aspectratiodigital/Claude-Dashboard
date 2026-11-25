@@ -3,13 +3,17 @@ import http from 'node:http'
 import net from 'node:net'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { Project, StudioElement, StudioKind, StudioMetaField, StudioOp, StudioPage, StudioResult, StudioSeoSite, StudioSite } from '../src/data/types.ts'
-import { commitTitle, opNote } from '../src/data/studio.ts'
+import { commitTitle, mediaLabel, mediaQuery, opNote, propName } from '../src/data/studio.ts'
 import { ask, quoteForCmd } from './assistant.ts'
 import { DATA_DIR, log } from './util.ts'
 import { typeOf, uploadPath } from './files.ts'
 import { OVERLAY_JS } from './studio-overlay.ts'
+import { encodeFor, findInText, findPattern, modeAt, replaceHits, sourceFiles, textPattern, type Hit } from './studio-source.ts'
+import { sanitiseSvg } from './studio-media.ts'
 
 // Studio: the visual site builder. Each website gets its own clean clone under
 // .jarvis/studio/<repo> (never your working folder, so Studio can't trip over
@@ -20,7 +24,7 @@ import { OVERLAY_JS } from './studio-overlay.ts'
 
 export const STUDIO_DIR = path.join(DATA_DIR, 'studio')
 
-interface Runtime {
+export interface Runtime {
   site: StudioSite
   folder: string
   server?: http.Server
@@ -31,6 +35,11 @@ interface Runtime {
 }
 
 const sites = new Map<string, Runtime>()
+
+/** a site Studio has open, for the other Studio modules */
+export const runtimeOf = (id: string) => sites.get(id) ?? null
+/** the preview ports Studio is serving, so other code can tell a preview address from anything else */
+export const previewPorts = () => [...sites.values()].map((r) => r.site.port).filter((p): p is number => !!p)
 
 /** Which kind of site a folder holds, from the files in it. */
 export function detectKind(folder: string): { kind: StudioKind; root: string; build: string[] | null } {
@@ -60,7 +69,7 @@ const AS_NODE = { ELECTRON_RUN_AS_NODE: '1' }
 
 /** Run a command, resolving with its output; never throws. */
 /** Run a command; `keep` is how much of the end of its output to hold on to. */
-function run(cmd: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv, timeout = 10 * 60_000, keep = 20_000): Promise<{ ok: boolean; out: string }> {
+export function run(cmd: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv, timeout = 10 * 60_000, keep = 20_000): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
     const win = process.platform === 'win32' && /^(npm|npx)$/.test(cmd)
     const child = spawn(win ? `${cmd}.cmd` : cmd, args, { cwd, env: { ...process.env, ...env }, windowsHide: true, shell: win })
@@ -86,14 +95,14 @@ function run(cmd: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv, 
  * git with your GitHub token passed as an HTTP header through the environment:
  * it never lands in .git/config, the remote URL or the process list.
  */
-function git(args: string[], cwd: string, token: string | null) {
+export function git(args: string[], cwd: string, token: string | null, timeout = 5 * 60_000) {
   const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: '0' }
   if (token) {
     env.GIT_CONFIG_COUNT = '1'
     env.GIT_CONFIG_KEY_0 = 'http.https://github.com/.extraheader'
     env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`
   }
-  return run('git', args, cwd, env, 5 * 60_000)
+  return run('git', args, cwd, env, timeout)
 }
 
 function folderOf(p: Project) {
@@ -101,7 +110,15 @@ function folderOf(p: Project) {
 }
 
 function blank(p: Project): StudioSite {
-  return { projectId: p.id, repo: p.repo, branch: p.defaultBranch, kind: 'unknown', status: 'idle', message: '', port: null, sha: null, commit: null, committed: null, changed: [], notes: [], pages: [], seo: null, last: null }
+  return { projectId: p.id, repo: p.repo, branch: p.defaultBranch, kind: 'unknown', status: 'idle', message: '', port: null, sha: null, commit: null, committed: null, changed: [], notes: [], pages: [], seo: null, last: null, touched: [], pipeline: 'files', schedule: null, openedMs: null }
+}
+
+/** how new photos become web-ready on this site */
+export function detectPipeline(dir: string, kind: StudioKind): StudioSite['pipeline'] {
+  const script = path.join(dir, 'build-v2', 'images.js')
+  if (fs.existsSync(script) && /const jobs\s*=\s*\[/.test(fs.readFileSync(script, 'utf8'))) return 'script'
+  if (kind === 'astro' && fs.existsSync(path.join(dir, 'src', 'assets'))) return 'astro'
+  return 'files'
 }
 
 export function studioState(p: Project): StudioSite {
@@ -143,6 +160,7 @@ const set = (r: Runtime, status: StudioSite['status'], message: string) => {
 }
 
 async function prepare(r: Runtime, p: Project, token: string | null) {
+  const t0 = Date.now()
   fs.mkdirSync(STUDIO_DIR, { recursive: true })
   const dir = r.folder
   const branch = p.defaultBranch
@@ -170,19 +188,47 @@ async function prepare(r: Runtime, p: Project, token: string | null) {
   if (kind === 'app') return set(r, 'unsupported', 'This is an app, not a website, so it isn’t in Studio.')
   if (kind === 'unknown') return set(r, 'unsupported', 'Studio couldn’t find a website in this repo (no index.html, Astro project or build script).')
 
-  if (build) {
+  r.site.pipeline = detectPipeline(dir, kind)
+  // the pages are already built from exactly this source: no need to build again
+  if (build && builtStamp(r) !== readStamp(dir)) {
     set(r, 'building', 'Building the pages')
     const b = await run(process.execPath, build, dir, AS_NODE)
     if (!b.ok) throw new Error(`The site’s build script failed. ${lastLine(b.out)}`)
+    writeStamp(r)
   }
   if (kind === 'astro') await startAstro(r)
   await startPreview(r, root)
   r.site.pages = listPages(dir, kind, root, p)
   r.site.seo = siteSeo(dir, kind, root)
+  r.site.openedMs = Date.now() - t0
   set(r, 'ready', '')
 }
 
-async function readHead(r: Runtime) {
+// --- Skipping a build that's already done ---------------------------------------------------
+
+const STAMP = (dir: string) => path.join(dir, '.git', 'studio-built')
+const readStamp = (dir: string) => {
+  try {
+    return fs.readFileSync(STAMP(dir), 'utf8')
+  } catch {
+    return ''
+  }
+}
+/** the commit and Studio's saved edits (with their files' times) the pages were last built from */
+function builtStamp(r: Runtime) {
+  const e = studioEdits(r.folder)
+  const times = e.files.map((f) => {
+    try {
+      return `${f}:${fs.statSync(path.join(r.folder, f)).mtimeMs}`
+    } catch {
+      return f
+    }
+  })
+  return `${r.site.sha}|${times.join(',')}`
+}
+const writeStamp = (r: Runtime) => fs.writeFileSync(STAMP(r.folder), builtStamp(r))
+
+export async function readHead(r: Runtime) {
   const h = await git(['log', '-1', '--format=%H%n%cI%n%s'], r.folder, null)
   const [sha, when, ...subject] = h.out.trim().split('\n')
   r.site.sha = sha || null
@@ -191,6 +237,7 @@ async function readHead(r: Runtime) {
   const e = studioEdits(r.folder)
   r.site.changed = e.files
   r.site.notes = e.notes
+  r.site.touched = e.pages
 }
 
 /**
@@ -199,28 +246,30 @@ async function readHead(r: Runtime) {
  * site's own build script rewrites its pages, and that isn't an edit worth
  * keeping over the latest from GitHub.)
  */
-interface Edits {
+export interface Edits {
   files: string[]
   notes: string[]
+  /** pages the edits were made on */
+  pages: string[]
 }
 const EDITS = (dir: string) => path.join(dir, '.git', 'studio-edits.json')
 
-function studioEdits(dir: string): Edits {
+export function studioEdits(dir: string): Edits {
   try {
     const e = JSON.parse(fs.readFileSync(EDITS(dir), 'utf8'))
     const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
-    return { files: strs(e.files), notes: strs(e.notes) }
+    return { files: strs(e.files), notes: strs(e.notes), pages: strs(e.pages) }
   } catch {
-    return { files: [], notes: [] }
+    return { files: [], notes: [], pages: [] }
   }
 }
 
-function saveEdits(dir: string, e: Edits | null) {
+export function saveEdits(dir: string, e: Edits | null) {
   if (!e || (!e.files.length && !e.notes.length)) fs.rmSync(EDITS(dir), { force: true })
   else fs.writeFileSync(EDITS(dir), JSON.stringify(e, null, 2))
 }
 
-const lastLine = (s: string) =>
+export const lastLine = (s: string) =>
   s
     .trim()
     .split('\n')
@@ -307,15 +356,53 @@ function astroBin(dir: string) {
 
 const INJECT = `<script src="/__studio/overlay.js" data-studio></script>`
 
-function inject(html: string) {
+/** Studio's overlay at the end of the page, after `extra` (the unsaved edits, for a phone preview or a screenshot) */
+function inject(html: string, extra = '') {
   if (html.includes('data-studio')) return html
-  return /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, `${INJECT}</body>`) : html + INJECT
+  const tag = extra + INJECT
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, `${tag}</body>`) : html + tag
+}
+
+// Unsaved edits handed to a page that isn't in the canvas (a screenshot, or the phone preview):
+// the page asks for them by key, and the overlay applies them without its editing tools.
+const heldOps = new Map<string, { ops: unknown[]; until: number }>()
+
+/** keep edits for a page load outside the canvas; returns the key to ask for them with */
+export function holdOps(ops: unknown[], ms = 5 * 60_000, key = crypto.randomBytes(12).toString('hex')) {
+  for (const [k, v] of heldOps) if (v.until < Date.now()) heldOps.delete(k)
+  heldOps.set(key, { ops, until: Date.now() + ms })
+  return key
+}
+export const dropOps = (key: string) => heldOps.delete(key)
+
+function opsScript(req: http.IncomingMessage, url: URL) {
+  const key = url.searchParams.get('__studio_ops') ?? (req.headers['x-studio-ops'] as string | undefined)
+  const held = key ? heldOps.get(key) : null
+  if (!held) return ''
+  // safe inside a <script>: no way to close the tag from the data
+  const json = JSON.stringify(held.ops).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
+  return `<script data-studio-ops>window.__studioOps=${json}</script>`
 }
 
 /** Only answer to 127.0.0.1/localhost (guards against DNS rebinding). */
 function localHost(req: http.IncomingMessage) {
   const host = (req.headers.host ?? '').replace(/:\d+$/, '')
   return ['localhost', '127.0.0.1', '[::1]'].includes(host)
+}
+
+let axeSource: string | null | undefined
+/** the accessibility checker (axe-core), served to the overlay when the Checks tab asks for it */
+function axe(): string | null {
+  if (axeSource !== undefined) return axeSource
+  axeSource = null
+  // the desktop app has it next to its server bundle; `npm run dev` reads it from node_modules
+  const next = path.join(path.dirname(fileURLToPath(import.meta.url)), 'axe.min.js')
+  try {
+    axeSource = fs.readFileSync(fs.existsSync(next) ? next : createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
+  } catch {
+    /* not installed: the Checks tab says so */
+  }
+  return axeSource
 }
 
 async function startPreview(r: Runtime, root: string) {
@@ -331,17 +418,25 @@ async function startPreview(r: Runtime, root: string) {
       res.setHeader('Cache-Control', 'no-store')
       return res.end(OVERLAY_JS)
     }
+    if (url.pathname === '/__studio/axe.js') {
+      const src = axe()
+      res.statusCode = src ? 200 : 404
+      res.setHeader('Content-Type', 'text/javascript; charset=utf-8')
+      res.setHeader('Cache-Control', 'max-age=3600')
+      return res.end(src ?? '')
+    }
     const up = url.pathname.match(/^\/__studio\/upload\/([a-z0-9]{6,24})$/)
     if (up) {
-      // a photo you've just swapped in, before it's saved into the site
+      // a photo or video you've just swapped in, before it's saved into the site
       const file = uploadPath(up[1])
-      if (!file || !/\.(jpe?g|png|webp|avif|gif|svg)$/i.test(file)) return notFound(root, res)
+      if (!file || !/\.(jpe?g|png|webp|avif|gif|svg|mp4|webm)$/i.test(file)) return notFound(root, res)
       res.setHeader('Cache-Control', 'no-store')
       if (/\.svg$/i.test(file)) res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
       return send(file, res, 200)
     }
-    if (r.devPort && r.dev) return proxy(req, res, r.devPort)
-    serveStatic(root, url.pathname, res)
+    const extra = opsScript(req, url)
+    if (r.devPort && r.dev) return proxy(req, res, r.devPort, extra)
+    serveStatic(root, url.pathname, res, extra)
   })
   if (r.devPort) server.on('upgrade', (req, socket, head) => tunnel(req, socket as net.Socket, head, r.devPort!))
   await new Promise<void>((resolve, reject) => {
@@ -352,7 +447,7 @@ async function startPreview(r: Runtime, root: string) {
   r.site.port = (server.address() as net.AddressInfo).port
 }
 
-function serveStatic(root: string, pathname: string, res: http.ServerResponse) {
+function serveStatic(root: string, pathname: string, res: http.ServerResponse, extra = '') {
   let rel: string
   try {
     rel = decodeURIComponent(pathname)
@@ -366,25 +461,27 @@ function serveStatic(root: string, pathname: string, res: http.ServerResponse) {
   for (const c of candidates) {
     const file = path.resolve(base, '.' + path.posix.normalize('/' + c))
     if (file !== base && !file.startsWith(base + path.sep)) continue
-    if (fs.existsSync(file) && fs.statSync(file).isFile()) return send(file, res, 200)
+    if (fs.existsSync(file) && fs.statSync(file).isFile()) return send(file, res, 200, extra)
   }
-  notFound(root, res)
+  notFound(root, res, extra)
 }
 
-function notFound(root: string, res: http.ServerResponse) {
+function notFound(root: string, res: http.ServerResponse, extra = '') {
   const page = path.join(root, '404.html')
-  if (fs.existsSync(page)) return send(page, res, 404)
+  if (fs.existsSync(page)) return send(page, res, 404, extra)
   res.statusCode = 404
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
-  res.end(inject('<!doctype html><title>Not found</title><p style="font:16px system-ui;padding:2rem">This page isn’t in the site.</p>'))
+  res.end(inject('<!doctype html><title>Not found</title><p style="font:16px system-ui;padding:2rem">This page isn’t in the site.</p>', extra))
 }
 
-function send(file: string, res: http.ServerResponse, code: number) {
+function send(file: string, res: http.ServerResponse, code: number, extra = '') {
   const type = /\.html?$/i.test(file) ? 'text/html; charset=utf-8' : (EXTRA[path.extname(file).toLowerCase()] ?? typeOf(file))
   res.statusCode = code
   res.setHeader('Content-Type', type)
   res.setHeader('Cache-Control', 'no-store')
-  if (type.startsWith('text/html')) return res.end(inject(fs.readFileSync(file, 'utf8')))
+  // Studio's photo editor draws the site's photos onto a canvas
+  if (type.startsWith('image/')) res.setHeader('Access-Control-Allow-Origin', '*')
+  if (type.startsWith('text/html')) return res.end(inject(fs.readFileSync(file, 'utf8'), extra))
   fs.createReadStream(file).pipe(res)
 }
 
@@ -403,19 +500,22 @@ const EXTRA: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
 }
 
-function proxy(req: http.IncomingMessage, res: http.ServerResponse, port: number) {
-  const headers = { ...req.headers, host: `127.0.0.1:${port}` }
+function proxy(req: http.IncomingMessage, res: http.ServerResponse, port: number, extra = '') {
+  const headers: http.OutgoingHttpHeaders = { ...req.headers, host: `127.0.0.1:${port}` }
   delete headers['accept-encoding']
+  delete headers['x-studio-ops']
   const up = http.request({ host: '127.0.0.1', port, path: req.url, method: req.method, headers }, (x) => {
     const type = String(x.headers['content-type'] ?? '')
     if (!type.includes('text/html')) {
-      res.writeHead(x.statusCode ?? 502, x.headers)
+      const h = { ...x.headers }
+      if (type.startsWith('image/')) h['access-control-allow-origin'] = '*'
+      res.writeHead(x.statusCode ?? 502, h)
       return x.pipe(res)
     }
     const chunks: Buffer[] = []
     x.on('data', (c) => chunks.push(c))
     x.on('end', () => {
-      const body = inject(Buffer.concat(chunks).toString('utf8'))
+      const body = inject(Buffer.concat(chunks).toString('utf8'), extra)
       const h = { ...x.headers }
       delete h['content-length']
       delete h['content-encoding']
@@ -542,9 +642,17 @@ export function closeSite(id: string) {
   sites.delete(id)
 }
 
-/** Astro dev servers cost memory: stop any not looked at for 20 minutes. */
+/**
+ * Astro dev servers cost memory: stop any not looked at for 20 minutes. The
+ * site you used last stays warm for three hours, so coming back to it is instant.
+ */
 export function reapIdle() {
-  for (const [id, r] of sites) if (r.dev && !r.busy && Date.now() - r.lastUsed > 20 * 60_000) closeSite(id)
+  const latest = [...sites.values()].sort((a, b) => b.lastUsed - a.lastUsed)[0]
+  for (const [id, r] of sites) {
+    if (!r.dev || r.busy) continue
+    const idle = Date.now() - r.lastUsed
+    if (idle > (r === latest ? 3 * 3_600_000 : 20 * 60_000)) closeSite(id)
+  }
 }
 
 export function touch(id: string) {
@@ -569,59 +677,7 @@ process.once('exit', stopStudio)
 // but not run commands, push or reach the web. Then the site's build runs and
 // the canvas reloads from the real source.
 
-const SOURCE_EXT = /\.(html?|json|m?js|cjs|ts|tsx|jsx|astro|mdx?|ya?ml|njk|liquid|svelte|vue|txt)$/i
-const SOURCE_SKIP = new Set(['node_modules', '.git', '.astro', 'dist', 'release', '.github', '.vscode', '.claude'])
-
-function sourceFiles(dir: string, kind: StudioKind): string[] {
-  const out: string[] = []
-  const walkSrc = (d: string, depth: number) => {
-    if (depth > 8) return
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      if (e.name.startsWith('.') || SOURCE_SKIP.has(e.name)) continue
-      const full = path.join(d, e.name)
-      if (e.isDirectory()) walkSrc(full, depth + 1)
-      else if (SOURCE_EXT.test(e.name) && !/\.min\.|package-lock|CLAUDE\.md|README/i.test(e.name)) {
-        const rel = path.relative(dir, full).split(path.sep).join('/')
-        // a generated site's HTML is build output: its build would overwrite an edit there
-        if (kind === 'generated' && /\.html?$/i.test(e.name) && !rel.startsWith('src/')) continue
-        try {
-          if (fs.statSync(full).size < 1_500_000) out.push(full)
-        } catch {
-          /* vanished mid-walk */
-        }
-      }
-    }
-  }
-  walkSrc(dir, 0)
-  return out
-}
-
-const reEscape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-/** a pattern for text as the browser shows it, matching how it's likely written in source */
-function textPattern(text: string, flags = 'g') {
-  const CHAR: Record<string, string> = {
-    '&': '(?:&|&amp;)',
-    "'": `(?:'|’|&#39;|&#039;|&rsquo;|&apos;|\\\\')`,
-    '’': `(?:’|'|&#39;|&#8217;|&rsquo;|\\\\')`,
-    '"': '(?:"|\\\\"|&quot;|“|”)',
-    '“': '(?:“|"|&ldquo;|\\\\")',
-    '”': '(?:”|"|&rdquo;|\\\\")',
-    '–': '(?:–|&ndash;)',
-    '—': '(?:—|&mdash;)',
-    '<': '(?:<|&lt;)',
-    '>': '(?:>|&gt;)',
-  }
-  const word = (w: string) => [...w].map((c) => CHAR[c] ?? reEscape(c)).join('')
-  return new RegExp(text.trim().split(/\s+/).map(word).join('(?:\\s|&nbsp;|<br\\s*/?>)+'), flags)
-}
-
-interface Hit {
-  file: string
-  index: number
-  length: number
-}
-
+/** a match anywhere in the files (attributes too: alt text and meta tags live there), only when there's exactly one */
 function findOnce(files: string[], text: string): Hit | null {
   if (text.trim().length < 3) return null
   for (const flags of ['g', 'gi']) {
@@ -630,7 +686,7 @@ function findOnce(files: string[], text: string): Hit | null {
     for (const file of files) {
       const body = fs.readFileSync(file, 'utf8')
       for (const m of body.matchAll(re)) {
-        hits.push({ file, index: m.index!, length: m[0].length })
+        hits.push({ file, index: m.index!, length: m[0].length, mode: 'html' })
         if (hits.length > 1) break
       }
       if (hits.length > 1) break
@@ -641,66 +697,251 @@ function findOnce(files: string[], text: string): Hit | null {
   return null
 }
 
-/** the new text, written the way the file it goes into expects */
-function encodeFor(file: string, text: string) {
-  if (/\.json$/i.test(file)) return JSON.stringify(text).slice(1, -1)
-  if (/\.(m?js|cjs|tsx?|jsx|svelte|vue)$/i.test(file)) return text.replace(/\\/g, '\\\\').replace(/['"`]/g, '\\$&').replace(/\$\{/g, '\\${')
-  if (/\.(html?|astro|njk|liquid|mdx?)$/i.test(file)) return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return text
-}
-
-function replaceAt(hit: Hit, text: string) {
+/** write `text` at a hit, encoded for exactly where it lands (markup, an attribute, a JS string, JSON) */
+function writeAt(hit: Hit, text: string, html = false): boolean {
   const body = fs.readFileSync(hit.file, 'utf8')
-  fs.writeFileSync(hit.file, body.slice(0, hit.index) + encodeFor(hit.file, text) + body.slice(hit.index + hit.length))
+  const mode = modeAt(hit.file, body, hit.index, hit.length)
+  let out: string
+  if (html) {
+    // bold, italic, links and line breaks go in as markup: only where the source is markup
+    if (mode === 'html') out = text
+    else if (mode === 'template') out = text.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
+    else return false
+  } else out = encodeFor(hit.file, text, mode ?? undefined)
+  fs.writeFileSync(hit.file, body.slice(0, hit.index) + out + body.slice(hit.index + hit.length))
+  return true
 }
 
-/** Try an edit without Claude. Returns the file it changed, or null. */
-function direct(op: StudioOp, files: string[], dir: string): string | null {
-  const swap = (before: string, after: string) => {
+const rel = (dir: string, f: string) => path.relative(dir, f).split(path.sep).join('/')
+
+/** a site-wide design token (a CSS custom property) set where it's defined, when it's defined in exactly one place */
+function themeSwap(dir: string, kind: StudioKind, name: string, before: string, after: string): string | null {
+  if (!/^--[\w-]+$/.test(name) || /[;{}<>]/.test(after)) return null
+  const files = sourceFiles(dir, kind, { styles: true }).filter((f) => /\.(css|scss|sass|less|astro|html?|vue|svelte)$/i.test(f))
+  const norm = (v: string) => v.replace(/\s+/g, '').toLowerCase()
+  const re = new RegExp(`(${name.replace(/[-]/g, '\\-')}\\s*:\\s*)([^;}{\\n]+)`, 'g')
+  const hits: { file: string; index: number; length: number }[] = []
+  for (const f of files) {
+    const body = fs.readFileSync(f, 'utf8')
+    for (const m of body.matchAll(re)) {
+      const value = m[2].replace(/\s*!important\s*$/, '').trimEnd()
+      if (norm(value) === norm(before)) hits.push({ file: f, index: m.index! + m[1].length, length: value.length })
+    }
+  }
+  if (hits.length !== 1) return null
+  const h = hits[0]
+  const body = fs.readFileSync(h.file, 'utf8')
+  fs.writeFileSync(h.file, body.slice(0, h.index) + after.trim() + body.slice(h.index + h.length))
+  return rel(dir, h.file)
+}
+
+/** Try an edit without Claude. Returns the files it changed, or null when Claude should place it. */
+function direct(op: StudioOp, files: string[], dir: string, kind: StudioKind, root: string): string[] | null {
+  // an edit to something another edit made (a duplicate, a paste) goes with it, to Claude
+  if (op.made) return null
+  const swap = (before: string, after: string, html = false) => {
     if (!before.trim() || before === after) return null
     const hit = findOnce(files, before)
-    if (!hit) return null
-    replaceAt(hit, after)
-    return path.relative(dir, hit.file)
+    if (!hit || !writeAt(hit, after, html)) return null
+    return [rel(dir, hit.file)]
   }
-  if (op.kind === 'text') return swap(op.before, op.after)
+  if (op.kind === 'text' && op.everywhere) {
+    const hits = findInText(files, textPattern(op.before, 'g', true))
+    if (!hits.length) return null
+    if (op.html && hits.some((h) => h.mode !== 'html' && h.mode !== 'template')) return null
+    return replaceHits(hits, (h) => (op.html ? (h.mode === 'template' ? op.html!.replace(/`/g, '\\`').replace(/\$\{/g, '\\${') : op.html!) : encodeFor(h.file, op.after, h.mode))).map((f) => rel(dir, f))
+  }
+  if (op.kind === 'text') return op.html ? swap(op.before, op.html, true) : swap(op.before, op.after)
   if (op.kind === 'alt') return swap(op.before, op.after)
   if (op.kind === 'link' && op.before.length > 1 && !/^#?$/.test(op.before)) return swap(op.before, op.after)
   // a title or description written out in full in one place (a page's own <head>, its data entry)
   if (op.kind === 'meta' && op.field !== 'og:image' && op.before.trim().length >= 12) return swap(op.before, op.after)
+  if (op.kind === 'replace') {
+    let scope = files
+    if (op.scope === 'page') {
+      // only a hand-written page's own file is that page alone; templates are shared
+      if (kind !== 'static') return null
+      const page = path.join(root, op.page.replace(/\/$/, '/index.html').replace(/^\//, ''))
+      scope = files.filter((f) => path.resolve(f) === path.resolve(page) || path.resolve(f) === path.resolve(page.replace(/\/index\.html$/, '.html')))
+    }
+    const hits = findInText(scope, findPattern(op.find, op.matchCase, op.wholeWord))
+    if (!hits.length) return null
+    return replaceHits(hits, (h) => encodeFor(h.file, op.replace, h.mode)).map((f) => rel(dir, f))
+  }
+  if (op.kind === 'theme') {
+    const f = themeSwap(dir, kind, op.name, op.before, op.after)
+    return f ? [f] : null
+  }
   return null
 }
 
-/** Copy a swapped-in photo into the repo, next to the photo it replaces where Studio can tell. Returns its repo path. */
-function placeUpload(r: Runtime, op: { kind: StudioOp['kind']; upload?: string; name?: string; before?: string }): string | null {
+/** where an Astro photo's original lives, from the address its dev server shows it at */
+function astroSourceDir(dir: string, before: string): string | null {
+  let u: URL
+  try {
+    u = new URL(before, 'http://x')
+  } catch {
+    return null
+  }
+  let p = u.pathname
+  if (p === '/_image') p = decodeURIComponent(u.searchParams.get('href') ?? '')
+  p = p.split('?')[0]
+  let file: string | null = null
+  if (p.startsWith('/@fs/')) file = p.slice(4).replace(/^\/([A-Za-z]:)/, '$1')
+  else if (p.startsWith('/src/')) file = path.join(dir, p)
+  else if (p.startsWith('/_astro/')) {
+    // a built file: name.hash.ext, from somewhere in src/
+    const name = path.basename(p).split('.')[0]
+    let hit: string | null = null
+    walk(path.join(dir, 'src'), (f) => {
+      if (!hit && path.basename(f).split('.')[0] === name && /\.(jpe?g|png|webp|avif|gif|svg)$/i.test(f)) hit = f
+    }, new Set(['node_modules']))
+    file = hit
+  }
+  if (!file) return null
+  const full = path.resolve(file)
+  return full.startsWith(path.resolve(dir) + path.sep) && fs.existsSync(full) ? path.dirname(full) : null
+}
+
+/** a library photo's served address as its place in the repo */
+export function repoPathOf(r: Runtime, src: string): string | null {
+  const { root, kind } = detectKind(r.folder)
+  let p: string
+  try {
+    p = decodeURIComponent(new URL(src, 'http://x').pathname)
+  } catch {
+    return null
+  }
+  const full = p.startsWith('/@fs/') ? path.resolve(p.slice(4).replace(/^\/([A-Za-z]:)/, '$1')) : path.resolve(kind === 'astro' ? path.join(r.folder, 'public') : root, '.' + p)
+  return full.startsWith(path.resolve(r.folder) + path.sep) && fs.existsSync(full) ? rel(r.folder, full) : null
+}
+
+type Placeable = { kind: StudioOp['kind']; upload?: string; name?: string; before?: string }
+
+/** Copy a new photo, video or logo into the repo, next to the one it replaces where Studio can tell. Returns its repo path. */
+function placeUpload(r: Runtime, op: Placeable): string | null {
   const from = op.upload ? uploadPath(op.upload) : null
   if (!from) return null
   const dir = r.folder
   const { root, kind } = detectKind(dir)
   let target: string | null = null
-  if (op.kind === 'image' && op.before) {
-    try {
-      const u = new URL(op.before)
-      const served = path.resolve(root, '.' + decodeURIComponent(u.pathname))
-      const pub = path.resolve(dir, 'public', '.' + decodeURIComponent(u.pathname))
-      for (const f of [served, pub]) if (f.startsWith(dir) && fs.existsSync(f)) target = path.dirname(f)
-    } catch {
-      /* not a URL */
+  if ((op.kind === 'image' || op.kind === 'bg' || op.kind === 'video' || op.kind === 'svg') && op.before) {
+    if (kind === 'astro') target = astroSourceDir(dir, op.before)
+    if (!target) {
+      try {
+        const u = new URL(op.before, 'http://x')
+        const served = path.resolve(root, '.' + decodeURIComponent(u.pathname))
+        const pub = path.resolve(dir, 'public', '.' + decodeURIComponent(u.pathname))
+        for (const f of [served, pub]) if (f.startsWith(dir) && fs.existsSync(f)) target = path.dirname(f)
+      } catch {
+        /* not a URL */
+      }
     }
   }
   if (!target) {
-    // a share image needs a plain public address, so on Astro it goes in public/ rather than through the image pipeline
-    const options = kind === 'astro' && op.kind === 'meta' ? ['public/images', 'public/img', 'public'] : kind === 'astro' ? ['src/assets/photos', 'src/assets/images', 'src/assets', 'public/images', 'public'] : ['img', 'images', 'assets/img', 'assets/images', 'assets', 'src/img']
+    const video = op.kind === 'video'
+    // a share image or a video needs a plain public address, so on Astro it goes in public/ rather than through the image pipeline
+    const options =
+      kind === 'astro' && (op.kind === 'meta' || video || op.kind === 'bg')
+        ? video ? ['public/videos', 'public/video', 'public/media', 'public'] : ['public/images', 'public/img', 'public']
+        : kind === 'astro'
+          ? ['src/assets/photos', 'src/assets/images', 'src/assets', 'public/images', 'public']
+          : video ? ['video', 'videos', 'media', 'assets/video', 'img', 'images'] : ['img', 'images', 'assets/img', 'assets/images', 'assets', 'src/img']
     const found = options.map((o) => path.join(dir, o)).find((o) => fs.existsSync(o))
-    target = found ?? path.join(dir, kind === 'astro' ? 'public/images' : 'images')
+    target = found ?? path.join(dir, kind === 'astro' ? (video ? 'public/videos' : 'public/images') : video ? 'video' : 'images')
   }
   fs.mkdirSync(target, { recursive: true })
   const ext = path.extname(from).toLowerCase() || '.jpg'
   const base = path.basename(op.name || 'photo', path.extname(op.name || '')).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'photo'
   let name = `${base}${ext}`
   for (let n = 2; fs.existsSync(path.join(target, name)); n++) name = `${base}-${n}${ext}`
-  fs.copyFileSync(from, path.join(target, name))
-  return path.relative(dir, path.join(target, name)).split(path.sep).join('/')
+  if (ext === '.svg') {
+    // a logo or icon goes in with anything that could run taken out
+    const clean = sanitiseSvg(fs.readFileSync(from, 'utf8'))
+    if (!clean) return null
+    fs.writeFileSync(path.join(target, name), clean)
+  } else fs.copyFileSync(from, path.join(target, name))
+  return rel(dir, path.join(target, name))
+}
+
+// --- The site's own image script (Kings Hill Dental's build-v2/images.js) -----------------------
+//
+// Its pages use photos by name (img/hero-general.webp, plus AVIF twins and phone-sized copies for
+// page headers), each made from an original in a source folder by a job in images.js. A swapped
+// photo goes in as a new original and its job is pointed at it, then Studio runs that one job
+// (and the header copies when it's a header photo): the pages already use that name, so nothing
+// else has to change. Swapped on one page only, it gets its own job and name, and Claude points
+// that page at it.
+
+async function imageTools(r: Runtime) {
+  const sharp = path.join(r.folder, '_capture', 'node_modules', 'sharp')
+  if (fs.existsSync(sharp)) return true
+  if (!fs.existsSync(path.join(r.folder, '_capture', 'package.json'))) return false
+  set(r, 'working', 'Installing the site’s image tools (first time only)')
+  const lock = fs.existsSync(path.join(r.folder, '_capture', 'package-lock.json'))
+  const i = await run('npm', [lock ? 'ci' : 'install', '--no-audit', '--no-fund', '--prefix', '_capture'], r.folder, { PUPPETEER_SKIP_DOWNLOAD: '1' })
+  return i.ok && fs.existsSync(sharp)
+}
+
+/** run one images.js job: the original at `src`, resized and saved as img/<name>.webp exactly as the script would */
+async function runImageJob(r: Runtime, src: string, name: string, width: number, quality: number, hero: boolean) {
+  const script = `const sharp=require(${JSON.stringify(path.join(r.folder, '_capture', 'node_modules', 'sharp'))});(async()=>{const img=sharp(${JSON.stringify(path.join(r.folder, src))}).rotate();const meta=await img.metadata();await img.resize({width:Math.min(meta.width,${width}),withoutEnlargement:true}).webp({quality:${quality},alphaQuality:92}).toFile(${JSON.stringify(path.join(r.folder, 'img', `${name}.webp`))})})().catch(e=>{console.error(e.message);process.exit(1)})`
+  const out = await run(process.execPath, ['-e', script], r.folder, AS_NODE, 120_000)
+  if (!out.ok) throw new Error(`The site’s image script couldn’t make the photo. ${lastLine(out.out)}`)
+  if (hero) {
+    set(r, 'working', 'Making the smaller header copies (about a minute)')
+    const h = await run(process.execPath, ['build-v2/images.js', '--heroes', name], r.folder, AS_NODE, 10 * 60_000)
+    if (!h.ok) throw new Error(`The site’s image script couldn’t make the header copies. ${lastLine(h.out)}`)
+  }
+}
+
+/** a photo swap through the image script: done (nothing more needed), or the new name for Claude to point the page at */
+async function scriptPipeline(r: Runtime, op: Extract<StudioOp, { kind: 'image' }>): Promise<{ done: boolean; note?: string } | null> {
+  const from = op.upload ? uploadPath(op.upload) : null
+  if (!from) return null
+  const scriptFile = path.join(r.folder, 'build-v2', 'images.js')
+  let script = fs.readFileSync(scriptFile, 'utf8')
+  let file: string
+  try {
+    file = path.basename(decodeURIComponent(new URL(op.before, 'http://x').pathname))
+  } catch {
+    return null
+  }
+  const stem = file.replace(/\.[a-z0-9]+$/i, '')
+  const jobRe = (n: string) => new RegExp(`\\[\\s*'([^']+)'\\s*,\\s*'${n.replace(/[-]/g, '\\-')}'\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\]`)
+  let name = stem
+  let job = script.match(jobRe(name))
+  if (!job) {
+    name = stem.replace(/-\d{3,4}$/, '')
+    job = script.match(jobRe(name))
+  }
+  if (!job || !(await imageTools(r))) return null
+  const [line, src, w, q] = job
+  const heroes = script.match(/const HEROES\s*=\s*\[([\s\S]*?)\]/)?.[1] ?? ''
+  const hero = new RegExp(`'${name}'`).test(heroes)
+  // the new original goes beside the old one
+  const folder = path.posix.dirname(src)
+  const ext = path.extname(from).toLowerCase() || '.jpg'
+  const base = (op.name || 'photo').replace(/\.[a-z0-9]+$/i, '').replace(/[^\w -]+/g, '').trim().slice(0, 60) || 'photo'
+  let newSrc = `${folder}/${base}${ext}`
+  for (let n = 2; fs.existsSync(path.join(r.folder, newSrc)); n++) newSrc = `${folder}/${base} ${n}${ext}`
+  fs.mkdirSync(path.join(r.folder, folder), { recursive: true })
+  fs.copyFileSync(from, path.join(r.folder, newSrc))
+  set(r, 'working', 'Making the photo web-ready with the site’s image script')
+  if (op.everywhere) {
+    script = script.replace(line, line.replace(`'${src}'`, `'${newSrc.replace(/'/g, "\\'")}'`))
+    fs.writeFileSync(scriptFile, script)
+    await runImageJob(r, newSrc, name, Number(w), Number(q), hero)
+    return { done: true }
+  }
+  // this page only: its own job and name
+  let newName = `${name}-${base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'new'}`
+  for (let n = 2; script.includes(`'${newName}'`); n++) newName = `${name}-${n}`
+  script = script.replace(line, `${line},\n  ['${newSrc.replace(/'/g, "\\'")}', '${newName}', ${w}, ${q}], // added in Studio for ${op.page}`)
+  if (hero) script = script.replace(/const HEROES\s*=\s*\[/, (m) => `${m}'${newName}', `)
+  fs.writeFileSync(scriptFile, script)
+  await runImageJob(r, newSrc, newName, Number(w), Number(q), hero)
+  return { done: false, note: `The site's image script has already made the new photo as img/${newName}.webp${hero ? ' (with its AVIF twin and smaller copies, like the other page headers)' : ''}, from a new job in build-v2/images.js. On the page ${op.page}, point ${op.label} at it in place of ${name} (the way the page's other photos are referenced), on this page only.` }
 }
 
 const KIND_NOTE: Record<StudioKind, string> = {
@@ -712,21 +953,30 @@ const KIND_NOTE: Record<StudioKind, string> = {
   unknown: '',
 }
 
-function instruction(op: StudioOp, placed: Map<string, string>): string {
+const BUTTON_HINT = 'Use the site’s own classes and design tokens, and put CSS in the site’s stylesheets (not inline styles).'
+
+function instruction(op: StudioOp, placed: Map<string, string>, nums: Map<string, number>): string {
   const on = `On the page ${op.page}`
-  const el = `the ${op.label} (CSS path \`${op.selector}\`${op.text ? `, text “${op.text.slice(0, 120)}”` : ''})`
+  const madeBy = op.made && nums.get(op.made) ? ` (it's the new copy made by edit ${nums.get(op.made)}, so make this change on that copy)` : ''
+  const el = `the ${op.label} (CSS path \`${op.selector}\`${op.text ? `, text “${op.text.slice(0, 120)}”` : ''})${madeBy}`
   switch (op.kind) {
     case 'text':
+      if (op.everywhere) return `Everywhere on the site (every page, template and data file), the words “${op.before}” appear as visible text. Change every copy to read ${op.html ? `as this markup: \`${op.html}\`` : `“${op.after}”`}. Don't change code, class names, file names or addresses that happen to contain the words.`
+      if (op.html) return `${on}, ${el} reads “${op.before}”. Change it to this, keeping the bold, italic, links and line breaks exactly as given, written in the site's own markup (or its data's rich-text format): \`${op.html}\``
       return `${on}, ${el} reads “${op.before}”. Change it to read “${op.after}”.`
     case 'alt':
       return `${on}, set the alt text of the image in ${el} to “${op.after}”.`
     case 'link':
       return `${on}, ${el} links to \`${op.before || '(nothing)'}\`. Make it link to \`${op.after}\`.`
-    case 'image':
+    case 'image': {
+      const where = op.everywhere ? 'everywhere this photo is used on the site' : 'on this page only (other pages using the same photo keep it)'
+      if (op.src) return `${on}, replace the photo in ${el} (currently ${op.before}) with the site's existing photo at \`${op.src}\`, ${where}. Keep its alt text, size and crop styling, and use the site's usual way of referencing photos (its image pipeline or <picture> pattern).`
       return placed.get(op.id)
-        ? `${on}, replace the photo in ${el} (currently ${op.before}) with the new photo Studio saved at \`${placed.get(op.id)}\`. Keep its alt text, size and crop styling. If the site serves it through <picture>/srcset or an image pipeline you can't run, point the image at the new file directly.`
+        ? `${on}, replace the photo in ${el} (currently ${op.before}) with the new photo Studio saved at \`${placed.get(op.id)}\`, ${where}. Keep its alt text, size and crop styling. If the site serves photos through <picture>/srcset or an image pipeline (Astro's <Image>, an image script), use that pipeline for the new photo the same way as the old one.`
         : `${on}, the photo in ${el} was swapped, but the new file couldn't be copied in. Skip this one and say so.`
+    }
     case 'add-image':
+      if (op.src) return `${on}, add the site's existing photo at \`${op.src}\` directly after ${el}, with alt text “${op.alt}”. Style it to sit naturally in that spot: the column's width, and the same corner radius and spacing as the site's other photos.`
       return placed.get(op.id)
         ? `${on}, add the new photo Studio saved at \`${placed.get(op.id)}\` directly after ${el}, with alt text “${op.alt}”. Style it to sit naturally in that spot: the column's width, and the same corner radius and spacing as the site's other photos.`
         : `${on}, a photo was added after ${el}, but the file couldn't be copied in. Skip this one and say so.`
@@ -744,9 +994,50 @@ function instruction(op: StudioOp, placed: Map<string, string>): string {
         : `${on}, hide ${el} at screen widths like ${op.width}px (use the site's breakpoint that contains ${op.width}px) and keep it at other sizes.`
     case 'meta':
       return metaInstruction(op, placed)
+    case 'style': {
+      const set = Object.entries(op.props)
+        .map(([k, v]) => `${k}: ${v}${op.before[k] ? ` (now ${op.before[k]})` : ''}`)
+        .join('; ')
+      const range = op.media ? `only at screen widths ${mediaLabel(op.media)} (\`${mediaQuery(op.media)}\`: use the site's own breakpoint for that range)` : 'at every screen size'
+      return `${on}, change the look of ${el}: ${set}, ${range}. In plain words: ${Object.keys(op.props).map(propName).join(', ')}. ${BUTTON_HINT} Where a value is a token like var(--x), keep the token. If other elements share its class and shouldn't change, add a modifier class for this one.`
+    }
+    case 'attr':
+      if (op.name === 'class') return `${on}, restyle ${el} using the site's own button style: change its classes from “${op.before ?? ''}” to “${op.after ?? ''}”. If the markup comes from a component or helper, use its option for that style.`
+      if (op.name === 'target') return op.after === '_blank' ? `${on}, make the link in ${el} open in a new tab (target="_blank" rel="noopener").` : `${on}, make the link in ${el} open in the same tab (remove target="_blank").`
+      if (op.name === 'required') return `${on}, make the form field in ${el} ${op.after === null ? 'optional (not required)' : 'required'}.${op.after === null ? '' : ' Mark it the way the site marks its other required fields.'}`
+      if (op.name === 'placeholder') return `${on}, set the placeholder of the form field in ${el} to “${op.after ?? ''}”.`
+      if (/^data-(reveal|split|aos|animate|anim|animation|sal|scroll|motion)$/.test(op.name))
+        return op.after === null ? `${on}, turn off the entrance animation of ${el} (remove its ${op.name} attribute, or the site's equivalent).` : `${on}, give ${el} the site's entrance animation ${op.name}="${op.after}" (the same way other elements use it).`
+      if (op.name === 'src') return `${on}, change the address of the embed in ${el} from \`${op.before ?? ''}\` to \`${op.after ?? ''}\`.`
+      return op.after === null ? `${on}, remove the ${op.name} attribute from ${el}.` : `${on}, set the ${op.name} attribute of ${el} to “${op.after}”.`
+    case 'paste':
+      return `${on}, add a copy of the ${op.from.label} from the page ${op.from.page} (CSS path \`${op.from.selector}\`${op.from.text ? `, text “${op.from.text.slice(0, 100)}”` : ''}) directly after ${el}. Reuse the same component, partial or data entry the original is built from rather than pasting raw HTML, and make sure its styles also apply on this page. As it appeared on the page:\n\`\`\`html\n${op.html.slice(0, 6000)}\n\`\`\``
+    case 'table': {
+      const what = { 'add-row': `add a new blank row straight after row ${op.row + 1}`, 'remove-row': `remove row ${op.row + 1}`, 'add-col': `add a new blank column straight after column ${op.col + 1}`, 'remove-col': `remove column ${op.col + 1}` }[op.action]
+      return `${on}, in the table at ${el}, ${what} (counting the header row as row 1). If the table is built from a data file, change the data.`
+    }
+    case 'bg':
+      if (op.src) return `${on}, change the background photo of ${el} (now ${op.before}) to the site's existing photo at \`${op.src}\`. Keep its sizing and position.`
+      return placed.get(op.id) ? `${on}, change the background photo of ${el} (now ${op.before}) to the new photo Studio saved at \`${placed.get(op.id)}\`. Keep its sizing and position, and set it where the current one is set.` : `${on}, a background photo was swapped but the file couldn't be copied in. Skip this one and say so.`
+    case 'video':
+      return placed.get(op.id) ? `${on}, replace the video in ${el} (now ${op.before}) with the new video Studio saved at \`${placed.get(op.id)}\`. Keep its attributes (autoplay, muted, loop, playsinline, poster, controls).` : `${on}, a video was swapped but the file couldn't be copied in. Skip this one and say so.`
+    case 'embed':
+      return `${on}, add an embedded ${op.provider === 'maps' ? 'Google map' : op.provider === 'other' ? 'frame' : `${op.provider === 'youtube' ? 'YouTube' : 'Vimeo'} video`} directly after ${el}: an <iframe src="${op.src}" title="${op.title}" loading="lazy" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"> in a responsive wrapper (${op.provider === 'maps' ? '4:3' : '16:9'}), with the site's usual corner radius and spacing. Use exactly that address (it's the privacy-friendly version). Pasted link: ${op.url}`
+    case 'svg': {
+      const file = placed.get(op.id)
+      if (!file) return `${on}, a logo or icon was swapped but the file couldn't be copied in. Skip this one and say so.`
+      return op.inline
+        ? `${on}, replace the inline SVG in ${el} with the SVG in \`${file}\` (put its markup inline in place of the old one). Keep the old SVG's class, width, height and aria attributes so it stays the same size${op.recolour ? ', and make its fills and strokes use currentColor so it takes the same colour as before' : ', and keep the new logo’s own colours'}.`
+        : `${on}, point the logo image in ${el} (now ${op.before}) at the new SVG Studio saved at \`${file}\`, keeping its size.`
+    }
+    case 'replace':
+      return `${op.scope === 'site' ? 'Across the whole site (every page, template and data file)' : on}, replace the visible words “${op.find}” with “${op.replace}”${op.matchCase ? ' (matching capitals exactly)' : ' (any capitals)'}${op.wholeWord ? ', whole words only' : ''}. Only words a visitor reads: not code, class names, file names or addresses.`
+    case 'theme':
+      return `Change the site-wide design token \`${op.name}\` from \`${op.before}\` to \`${op.after}\` where it's defined (usually :root in the main stylesheet), so it changes everywhere it's used.`
+    case 'ask':
+      return `${on}, about ${el}: ${op.prompt}`
   }
 }
-
 const META_TAG: Record<StudioMetaField, string> = {
   title: 'the <title> (what Google shows as the headline)',
   description: 'the <meta name="description"> (the text under the headline on Google)',
@@ -767,14 +1058,15 @@ function metaInstruction(op: Extract<StudioOp, { kind: 'meta' }>, placed: Map<st
   return `${on}, set ${META_TAG[op.field]} to “${op.after}”${op.before ? ` (it is now “${op.before}”)` : ''}. ${how}`
 }
 
-function editPrompt(p: Project, kind: StudioKind, ops: StudioOp[], placed: Map<string, string>) {
+function editPrompt(p: Project, kind: StudioKind, ops: StudioOp[], placed: Map<string, string>, notes: Map<string, string>) {
+  const nums = new Map(ops.map((op, i) => [op.id, i + 1]))
   return [
     `You're working in a copy of the ${p.name} website repo (${p.repo}) for Studio, the visual editor in Dylan's Blueprint app. Dylan made these edits on Studio's preview of the site. Make each one in the site's real source so the site itself produces it.`,
     KIND_NOTE[kind],
     'Read CLAUDE.md and the README first if they exist, and follow their conventions. Keep each change as small as possible and scoped to that element and page. You can read and edit files but not run commands, so don’t build, test, commit or push: Studio does that. Don’t touch unrelated files.',
     '',
     'The edits, in the order they were made:',
-    ...ops.map((op, i) => `${i + 1}. ${instruction(op, placed)}`),
+    ...ops.map((op, i) => `${i + 1}. ${notes.get(op.id) ?? instruction(op, placed, nums)}`),
     '',
     'Finish with one short line per edit, numbered the same, starting "done:" or "skipped:" with the reason.',
   ]
@@ -823,7 +1115,7 @@ async function gitChanged(dir: string): Promise<string[]> {
 }
 
 /** Run one job on a site (saving, Claude, publishing), with the site marked busy meanwhile. */
-function job(p: Project, message: string, fn: (r: Runtime) => Promise<StudioResult>): StudioSite | { error: string } {
+export function job(p: Project, message: string, fn: (r: Runtime) => Promise<StudioResult>): StudioSite | { error: string } {
   const r = sites.get(p.id)
   if (!r || r.site.status !== 'ready') return { error: r?.busy ? 'Studio is still busy with this site' : 'Open the site in Studio first' }
   r.lastUsed = Date.now()
@@ -844,46 +1136,84 @@ function job(p: Project, message: string, fn: (r: Runtime) => Promise<StudioResu
   return r.site
 }
 
-async function rebuild(r: Runtime) {
+export async function rebuild(r: Runtime) {
   const { build } = detectKind(r.folder)
   if (build) {
     set(r, 'working', 'Building the pages')
     const b = await run(process.execPath, build, r.folder, AS_NODE)
     if (!b.ok) throw new Error(`The site’s build script failed after the edits. ${lastLine(b.out)}`)
+    await readHead(r)
+    writeStamp(r)
   }
 }
 
-async function record(r: Runtime, notes: string[]) {
+/** note what changed (and on which pages), for the change list, the checks before going live and the commit */
+export async function record(r: Runtime, notes: string[], pages: string[] = []) {
   const e = studioEdits(r.folder)
   const files = await gitChanged(r.folder)
-  saveEdits(r.folder, { files, notes: files.length ? [...e.notes, ...notes] : [] })
+  saveEdits(r.folder, { files, notes: files.length ? [...e.notes, ...notes] : [], pages: files.length ? [...new Set([...e.pages, ...pages])] : [] })
+  await readHead(r)
+  writeStamp(r)
 }
+
+export const setStatus = set
 
 /** Save canvas edits into the site's source. */
 export function saveOps(p: Project, ops: StudioOp[], exe: string | null) {
   return job(p, `Saving ${ops.length} edit${ops.length === 1 ? '' : 's'} into the source`, async (r) => {
-    const { kind } = detectKind(r.folder)
+    const { kind, root } = detectKind(r.folder)
     const files = sourceFiles(r.folder, kind)
     const done: string[] = []
     const rest: StudioOp[] = []
+    const notes = new Map<string, string>()
+    const failed = new Map<string, string>()
     for (const op of ops) {
-      const file = direct(op, files, r.folder)
-      if (file) done.push(op.id)
+      // an edit to something an edit still waiting for Claude made goes with it
+      if (op.made && !ops.some((o) => o.id === op.made)) {
+        failed.set(op.id, 'It was made on something that’s no longer there')
+        continue
+      }
+      let changed: string[] | null = null
+      try {
+        changed = direct(op, files, r.folder, kind, root)
+      } catch (e) {
+        log('studio direct', (e as Error).message)
+      }
+      if (changed) done.push(op.id)
       else rest.push(op)
     }
+    // swapped photos through the site's own image script
+    if (r.site.pipeline === 'script') {
+      for (const op of [...rest]) {
+        if (op.kind !== 'image' || !op.upload || op.made) continue
+        try {
+          const out = await scriptPipeline(r, op)
+          if (!out) continue
+          if (out.done) {
+            rest.splice(rest.indexOf(op), 1)
+            done.push(op.id)
+          } else if (out.note) notes.set(op.id, out.note)
+        } catch (e) {
+          failed.set(op.id, (e as Error).message)
+          rest.splice(rest.indexOf(op), 1)
+        }
+      }
+    }
     const placed = new Map<string, string>()
-    for (const op of rest) if (op.kind === 'image' || op.kind === 'add-image' || (op.kind === 'meta' && op.upload)) {
-      const at = placeUpload(r, op)
-      if (at) placed.set(op.id, at)
+    for (const op of rest) {
+      if (notes.has(op.id)) continue
+      if (op.kind === 'image' || op.kind === 'add-image' || op.kind === 'bg' || op.kind === 'video' || op.kind === 'svg' || (op.kind === 'meta' && op.upload)) {
+        const at = placeUpload(r, op as Placeable)
+        if (at) placed.set(op.id, at)
+      }
     }
     let claudeText = ''
-    const failed = new Map<string, string>()
     if (rest.length) {
       if (!exe) {
         for (const op of rest) failed.set(op.id, 'Claude Code isn’t set up on this computer')
       } else {
         set(r, 'working', `Claude is placing ${rest.length} edit${rest.length === 1 ? '' : 's'} in the source`)
-        const c = await runClaudeIn(exe, r.folder, editPrompt(p, kind, rest, placed), (l) => l && set(r, 'working', `Claude: ${l.slice(0, 140)}`))
+        const c = await runClaudeIn(exe, r.folder, editPrompt(p, kind, rest, placed, notes), (l) => l && set(r, 'working', `Claude: ${l.slice(0, 140)}`))
         claudeText = c.text
         if (!c.ok) for (const op of rest) failed.set(op.id, c.text)
         // Claude reports skipped edits on their own numbered lines
@@ -896,7 +1226,7 @@ export function saveOps(p: Project, ops: StudioOp[], exe: string | null) {
     }
     await rebuild(r)
     const ok = ops.filter((o) => !failed.has(o.id))
-    await record(r, ok.map(opNote))
+    await record(r, ok.map(opNote), [...new Set(ok.map((o) => o.page))])
     const text = [
       `${ok.length} of ${ops.length} edit${ops.length === 1 ? '' : 's'} saved into the source.${done.length ? ` ${done.length} written in directly.` : ''}`,
       rest.length && claudeText ? `Claude: ${claudeText}` : '',
@@ -926,7 +1256,7 @@ export function askClaude(p: Project, prompt: string, ctx: { page: string; eleme
     if (!c.ok) return { kind: 'claude', ok: false, text: c.text, at: new Date().toISOString() }
     await rebuild(r)
     const summary = c.text.trim().split('\n').filter(Boolean).pop() ?? prompt
-    await record(r, [`Claude: ${prompt.replace(/\s+/g, ' ').slice(0, 90)}`])
+    await record(r, [`Claude: ${prompt.replace(/\s+/g, ' ').slice(0, 90)}`], [ctx.page])
     return { kind: 'claude', ok: true, text: c.text || summary, at: new Date().toISOString() }
   })
 }
