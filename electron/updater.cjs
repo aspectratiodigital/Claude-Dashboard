@@ -79,9 +79,22 @@ async function check(win) {
   fs.writeFileSync(lock, String(process.pid))
   try {
     log(`checking ${src} (installed ${info.commit.slice(0, 7)})`)
-    await run('git', ['fetch', '--quiet'], src)
+    const fetched = (await run('git', ['fetch', '--quiet', 'origin'], src)).code === 0
+    // A PR branch left checked out never sees main again, so once it's merged move to main
+    const branch = (await run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], src)).out
+    if (fetched && branch !== 'main') {
+      if ((await run('git', ['merge-base', '--is-ancestor', 'HEAD', 'origin/main'], src)).code === 0) {
+        log(`${branch} is merged, switching to main`)
+        if ((await run('git', ['checkout', '--quiet', 'main'], src)).code !== 0) log('could not switch to main')
+      } else {
+        log(`on ${branch}, which isn't in main yet; following it`)
+      }
+    }
     const pull = await run('git', ['pull', '--ff-only', '--quiet'], src)
-    if (pull.code !== 0) log('git pull failed; checking local changes only')
+    if (pull.code !== 0) {
+      log('git pull failed; checking local changes only')
+      if (fetched) notify(`Couldn't get the latest version. Details are in ${logFile}`)
+    }
     const head = (await run('git', ['rev-parse', 'HEAD'], src)).out
     if (!head || head === info.commit) return log('up to date')
 
