@@ -431,6 +431,8 @@ export interface StudioResult {
   /** what happened, in plain words (Claude's own summary for Claude's work) */
   text: string
   at: string
+  /** a heading other than the kind's own (a draft, say, isn't “Published”) */
+  title?: string
   /** the commit on GitHub, or the page to open a pull request for a draft */
   url?: string
   /** edits that couldn't be placed in the source */

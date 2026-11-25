@@ -587,9 +587,28 @@ li[data-unread='true'] .drawer-text b::after {
   border: 1px solid var(--ui-line);
   border-radius: calc(var(--ui-radius) * 0.7);
 }
-.settings input:focus {
+.settings input:focus,
+.settings textarea:focus {
   outline: 2px solid var(--ui-ac);
   outline-offset: -1px;
+}
+.settings textarea {
+  flex: 1;
+  min-width: 0;
+  font: 12px/1.4 'IBM Plex Mono', ui-monospace, monospace;
+  padding: 8px 10px;
+  color: var(--ui-fg);
+  background: color-mix(in srgb, var(--ui-fg) 5%, transparent);
+  border: 1px solid var(--ui-line);
+  border-radius: calc(var(--ui-radius) * 0.7);
+  resize: vertical;
+}
+.settings-row-top {
+  align-items: flex-start;
+}
+.settings-row .settings-status {
+  flex: 1;
+  margin: 0;
 }
 .settings-owner {
   max-width: 200px;

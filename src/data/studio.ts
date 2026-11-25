@@ -62,7 +62,7 @@ export function opNote(op: StudioOp): string {
   switch (op.kind) {
     case 'text':
       if (op.everywhere) return `Change “${cut(op.before)}” to “${cut(op.after)}” everywhere on the site`
-      return `${op.html ? 'Restyle and change' : 'Change'} “${cut(op.before)}” to “${cut(op.after)}” on the ${on}`
+      return `${op.html && /<[a-z]/i.test(op.html) ? 'Restyle and change' : 'Change'} “${cut(op.before)}” to “${cut(op.after)}” on the ${on}`
     case 'image':
       return `Swap the photo in ${op.label}${op.src ? ` for ${op.src.split('/').pop()}` : ''} on the ${op.everywhere ? 'site (every page using it)' : on}`
     case 'add-image':
