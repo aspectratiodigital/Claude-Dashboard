@@ -207,7 +207,28 @@ Open a project and you get a large desktop preview and a phone preview side by s
 - **How each site runs:** plain HTML sites (Aspect Ratio Digital, BAU Drinks) are served as they are. Sites built from data files (Kings Hill Dental, Optisoul, Diplomats of Sound) run their own build script first. Astro sites (Chai Wallahs, Grassroots Rising) install their packages the first time (a minute or two) and then run Astro's dev server, which Studio stops again after 20 minutes unused. Shopify themes (Babiators) open the live shop instead for now, and apps aren't listed.
 - **Screen sizes:** Mobile (390 × 844), Tablet (820 × 1180) and Laptop (1440 × 900), or **Custom**: type a width and height, or a ratio like `16:9` or `21:9` to set the height from the width. Turn any size sideways, zoom to fit or to 50, 75 or 100%, and put a second size beside the first to compare.
 - **Pages:** pick from every page Studio finds in the repo, type an address, or just click through the site in **Browse** mode.
-- **Select** (`V`): outlines what's under the pointer and shows what you click: its text or image, alt text, link, size, font and colours. Clicking a word in a heading selects the whole heading; hold `Alt` to select exactly what's under the pointer. `H` goes back to Browse, `Esc` steps back and then closes Studio.
+- **Edit** (`V`): click anything to select it. The side panel shows what it is and what you can do with it, Wix-style:
+  - **Text:** double-click (or **Edit text**) and type; Enter finishes, Esc cancels.
+  - **Move:** drag it. It **snaps** to line up its edges and centre with the elements around it and the page, with pink guides (the magnet button turns snapping off; hold `Alt` to drag freely). Arrow keys nudge 1px, `Shift` 10px. **Move earlier / later** reorders it among its neighbours, and **Reset position** puts it back.
+  - **Photos:** **Replace photo**, **Add photo after** and **Alt text**. Big photos are resized and turned into WebP automatically.
+  - **Buttons and links:** change the text, and where it **Links to**.
+  - **Duplicate**, **Hide at this size** (just this screen size) or **Remove**.
+  - Clicking a word in a heading selects the whole heading; hold `Alt` to select exactly what's under the pointer. `H` goes back to Browse.
+- **Undo and redo** (`Ctrl Z`, `Ctrl Shift Z`) for every edit, and a **Changes** tab listing them, where you can take any one back. Edits wait on the canvas (kept if you close Studio) until you save.
+- **Save** writes the edits into the site's real files, never the built HTML. Text, links and alt text whose old wording appears exactly once in the source are written straight in. Everything else (moves, reordering, photos, duplicates, hiding) goes to Claude Code, run in Studio's copy with file tools only (no commands, pushes or web), told how that site is built and to follow its CLAUDE.md. A dragged element becomes proper CSS at that screen size (margins, alignment, the site's own breakpoints), not a transform. Then the site rebuilds and the canvas reloads from the source, so what you see is what will ship.
+- **Claude** tab: ask for a change in words ("make this heading punchier", "add a third review card"). It knows the page, the screen size and the selected element, edits Studio's copy, and the canvas reloads.
+- **SEO** tab: the page on the canvas as Google and the social networks see it, with every detail marked with a green tick (sorted), an orange line (could improve) or a red cross (needs sorting):
+  - **On Google:** a preview of the search result, and the **Title** and **Description** to edit right there, with a character count that turns orange outside 30 to 60 (title) or 70 to 160 (description).
+  - **When shared:** a preview of the link card WhatsApp, Facebook and LinkedIn show, a **share image** to choose, and optionally different share words.
+  - **Checks:** title and description length and duplicates, the main heading and heading order, alt text (fill in the missing ones from a list, or have Claude write them all), photos over 300 KB, share tags, noindex, canonical link, viewport, language, favicon, amount of text, structured data, broken links to other pages, and the site's sitemap and robots.txt (read from the repo). Fixes that need code have an **Ask Claude** button that puts a ready-made request in the Claude tab.
+  - **Check every page** loads each page in the background (with your unsaved edits) and lists them worst first; click one to open it. It also spots titles and descriptions used on more than one page.
+  - Title, description, share image and alt text changes are edits like any other: undo, the Changes tab, then Save writes them into wherever the site sets them for that page.
+- **Review & push live** shows every saved change in plain words and the code diff (for sites built from data files, the source changes rather than the rebuilt pages), then:
+  - **Push live:** one commit to the default branch, with a descriptive message, and the site's own deploy takes it from there. If GitHub moved on meanwhile, your edits go on top.
+  - **Save as draft:** pushes a `studio/...` branch instead and links to open a pull request.
+  - **Discard all:** back to the latest commit.
+
+Pushing needs a GitHub token that can write (a signed-in GitHub CLI, or a read-and-write token in Settings). Photos over 2400px or 500 KB are resized and saved as WebP on the way in.
 
 Previews are served on `127.0.0.1` only, never your network, and only the site's own files (no `.git` or dotfiles). Studio uses the GitHub token from Settings to download private repos, passed to git through the environment so it's never written into the copy's `.git/config`.
 
@@ -224,6 +245,8 @@ The kinds: build started, passed or failed; deploying, deployed or deploy failed
 | `Ctrl K` | Command palette: jump to any project, preview or Studio |
 | `N` | Notifications |
 | `Esc` | Close the fullscreen preview, then the open project |
+| `V` `H` | Studio: Edit or Browse |
+| `Ctrl Z` `Ctrl Shift Z` | Studio: undo, redo |
 | `F` | Frame-rate meter |
 | `Enter` | Open up the selected building |
 | `Q` `E` | Rotate the plan |

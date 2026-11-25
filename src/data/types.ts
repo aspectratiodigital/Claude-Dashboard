@@ -397,7 +397,7 @@ export interface StudioSite {
   repo: string
   branch: string
   kind: StudioKind
-  status: 'idle' | 'syncing' | 'installing' | 'building' | 'starting' | 'ready' | 'unsupported' | 'error'
+  status: 'idle' | 'syncing' | 'installing' | 'building' | 'starting' | 'ready' | 'working' | 'unsupported' | 'error'
   /** what it's doing, or why it can't */
   message: string
   /** the preview server on 127.0.0.1 */
@@ -408,7 +408,84 @@ export interface StudioSite {
   committed: string | null
   /** files changed in Studio's copy and not yet published */
   changed: string[]
+  /** what those changes are, in plain words, one line per edit */
+  notes: string[]
   pages: StudioPage[]
+  /** whether the site has a robots.txt and a sitemap */
+  seo: StudioSeoSite | null
+  /** the outcome of the last save, Claude request, publish or discard */
+  last: StudioResult | null
+}
+
+export interface StudioResult {
+  kind: 'save' | 'claude' | 'publish' | 'discard'
+  ok: boolean
+  /** what happened, in plain words (Claude's own summary for Claude's work) */
+  text: string
+  at: string
+  /** the commit on GitHub, or the page to open a pull request for a draft */
+  url?: string
+  /** edits that couldn't be placed in the source */
+  failed?: string[]
+}
+
+/** One change made on the canvas, waiting to be saved into the site's source. */
+export type StudioOp =
+  | (StudioOpBase & { kind: 'text'; before: string; after: string })
+  | (StudioOpBase & { kind: 'image'; before: string; upload: string; name: string })
+  | (StudioOpBase & { kind: 'move'; dx: number; dy: number; width: number; snapped: string[] })
+  | (StudioOpBase & { kind: 'order'; direction: 'earlier' | 'later'; sibling: string })
+  | (StudioOpBase & { kind: 'link'; before: string; after: string })
+  | (StudioOpBase & { kind: 'alt'; before: string; after: string })
+  | (StudioOpBase & { kind: 'duplicate' })
+  /** hidden everywhere, or only at screen sizes like the one it was hidden on */
+  | (StudioOpBase & { kind: 'hide'; scope: 'everywhere' | 'this-size'; width: number })
+  | (StudioOpBase & { kind: 'add-image'; upload: string; name: string; alt: string })
+  /** the page's search and share details: its <title>, meta description, and social share image */
+  | (StudioOpBase & { kind: 'meta'; field: StudioMetaField; before: string; after: string; upload?: string; name?: string })
+
+export type StudioMetaField = 'title' | 'description' | 'og:title' | 'og:description' | 'og:image'
+
+/** What Studio's overlay reads from a page for the SEO tab. */
+export interface SeoReport {
+  path: string
+  url: string
+  /** the HTTP status the page was served with (404 pages still render) */
+  status: number
+  title: string
+  description: string | null
+  canonical: string | null
+  robots: string | null
+  lang: string
+  viewport: boolean
+  favicon: boolean
+  og: { title: string | null; description: string | null; image: string | null; url: string | null; type: string | null }
+  twitter: string | null
+  headings: { level: number; text: string }[]
+  images: { total: number; missingAlt: { selector: string; src: string }[]; large: { src: string; kb: number }[] }
+  words: number
+  /** schema.org types found in JSON-LD */
+  schema: string[]
+  /** links to other pages of the site: `statuses` holds each one checked, `checked` once they all are */
+  links: { internal: number; external: number; broken: { href: string; status: number }[]; statuses: Record<string, number>; checked: boolean }
+  site: StudioSeoSite
+}
+
+/** Site-wide SEO facts Studio reads from the repo (an Astro sitemap only exists after a build). */
+export interface StudioSeoSite {
+  robots: boolean
+  sitemap: boolean
+}
+
+export interface StudioOpBase {
+  id: string
+  /** the page it was made on */
+  page: string
+  selector: string
+  /** "Heading 1 .hero-title" */
+  label: string
+  /** the element's text when the edit was made, to help find it in the source */
+  text: string
 }
 
 /** what the overlay reports about the element you clicked in Select mode */
@@ -422,4 +499,11 @@ export interface StudioElement {
   rect: { x: number; y: number; w: number; h: number }
   style: { font: string; color: string; background: string; padding: string; margin: string }
   children: number
+  /** plain text you can edit in place */
+  editable: boolean
+  /** its place among its siblings, for moving it earlier or later */
+  index: number
+  siblings: number
+  /** dragged or nudged away from where the site puts it */
+  moved: boolean
 }
