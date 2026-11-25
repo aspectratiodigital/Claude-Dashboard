@@ -127,15 +127,18 @@ The huts are stacked newest push first, so the top one (labelled **Latest push**
 
 ### Apps
 
-Each building's details have a **Type** switch: **Website** or **App**. A repo with an Expo / React Native, Capacitor or Flutter app in it starts as an app; anything else starts as a website. An app's floors are its **home screen** (floor 1) and then one floor per **game mode**, instead of one per page. Open the building and pick a floor to see what's on it as pictures:
+Each building's details have a **Type** switch: **Website** or **App**. A repo with an Expo / React Native, Capacitor or Flutter app in it starts as an app; anything else starts as a website. An app's floors are its **home screen** (floor 1) and then one floor per **game mode**, instead of one per page. Open the building and pick a floor:
 
-- **App skins:** the home screen in each skin, screenshotted from the live web build (`?skin=` links), and on each game's floor that game in every skin (`?game=…&skin=…`).
+- **Live phone preview:** that floor's page of the app's web build, running in a phone frame you can tap straight into and test. The home floor opens the app as it starts; a game's floor opens it on that game (`?game=…`). Switch between **Live**, **Preview** and **Localhost** (the Expo web dev server, port 8081 unless Settings says otherwise), reload it, open it bigger with the full-screen button, or in your browser.
+- **Skin picker:** when the web build reads `?skin=` links, the app's skins sit above the phone as chips. Pick one and the preview reloads in it; your choice sticks for every floor of that app.
 - **Card skins:** each deck's back and its full sheet of faces.
 - **Other images:** the textures, labels and icons in the app's assets folder.
 
-Click any of them to see it full screen. Use the arrows (or `←` `→`) to go through the rest, **Open it live** to play with the real screen, and `Esc` to close.
+Click a card design or image to see it full screen. Use the arrows (or `←` `→`) to go through the rest, and `Esc` to close.
 
-It's read from the code on GitHub each time the default branch moves: a `games` / `modes` file (`{ id, title, tagline }` entries) gives the floors, a `skins` / `themes` file the skins, and a `packs` / `decks` file the card designs, matched to images by name. An app laid out differently can describe its floors in a `blueprint.app.json` instead (`{ "floors": [{ "name", "galleries": [{ "name", "items": [{ "name", "images": [{ "path" }] }] }] }] }`). Screenshots need the app's web address (Settings, or the repo's website). The desktop app takes them itself; in the browser version they use Edge or Chrome on this computer.
+If the preview can't load, it says why instead of staying blank: the address doesn't exist yet, nothing is running on localhost (start it with `npx expo start --web`), or the page refuses to be shown inside another page (`X-Frame-Options` / CSP `frame-ancestors`). The desktop app lets your own pages show anyway; in the browser version there's a **Try anyway** button.
+
+It's read from the code on GitHub each time the default branch moves: a `games` / `modes` file (`{ id, title, tagline }` entries) gives the floors, a `skins` / `themes` file the skins, and a `packs` / `decks` file the card designs, matched to images by name. An app laid out differently can describe its floors in a `blueprint.app.json` instead (`{ "skins": { "param": "skin", "items": [{ "id", "name", "swatch" }] }, "floors": [{ "name", "link": "game=quiz", "galleries": [{ "name", "items": [{ "name", "images": [{ "path" }] }] }] }] }`). A gallery item with a `shot` query (and no images) jumps the phone preview to that screen.
 
 ![A building opened up](docs/screenshots/blueprint-dissect.jpg)
 

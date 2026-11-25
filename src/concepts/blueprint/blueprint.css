@@ -2017,7 +2017,125 @@ button.bp-link {
   padding-right: 24px;
 }
 
-/* An app's floors: galleries of skins, card designs and images, and the full-screen viewer */
+/* An app's floors: a live phone preview of each floor, galleries of card designs and images, and the full-screen viewer */
+.ap-live {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+.ap-live .pv-bar button.pv-icon {
+  all: unset;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--line-2);
+}
+.ap-live .pv-bar button.pv-icon:hover {
+  color: var(--mark);
+}
+.ap-skins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ap-skins button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--ink);
+  border: 1px dashed var(--line-3);
+}
+.ap-skins button[aria-pressed='true'] {
+  border-style: solid;
+  border-color: var(--mark);
+  color: var(--mark);
+}
+.ap-skins button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ap-skins i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--line-3);
+}
+.ap-jump {
+  margin: 0;
+  font-size: 11px;
+  color: var(--line-2);
+}
+.ap-jump button {
+  all: unset;
+  cursor: pointer;
+  color: var(--mark);
+  text-decoration: underline;
+}
+.ap-device {
+  position: relative;
+  justify-self: center;
+  /* as big as fits beside the panel's header, so the whole phone shows without scrolling */
+  width: min(100%, 300px, max(200px, (100vh - 440px) * 390 / 844));
+  padding: 7px;
+  border-radius: 30px;
+  background: #0b0d10;
+  box-shadow: 0 0 0 1px var(--line-3), 0 20px 40px -24px rgba(0, 0, 0, 0.7);
+}
+.ap-screen {
+  position: relative;
+  aspect-ratio: 390 / 844;
+  overflow: hidden;
+  border-radius: 24px;
+  background: var(--paper-2);
+}
+.ap-screen-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.ap-screen-inner iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: #fff;
+}
+.ap-why {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--line-2);
+  background: color-mix(in srgb, var(--paper) 92%, black);
+}
+.ap-why b {
+  font-size: 13px;
+  color: var(--ink);
+}
+.ap-why button {
+  all: unset;
+  cursor: pointer;
+  text-align: center;
+  padding: 6px 10px;
+  border: 1px dashed var(--line-2);
+  color: var(--ink);
+}
+.ap-why button:hover {
+  border-color: var(--mark);
+  color: var(--mark);
+}
 .ap-gallery {
   margin-top: 6px;
 }
@@ -2028,9 +2146,6 @@ button.bp-link {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
   gap: 8px;
-}
-.ap-grid[data-phone='true'] {
-  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
 }
 .ap-tile {
   all: unset;
@@ -2050,18 +2165,10 @@ button.bp-link {
   border: 1px solid var(--line-3);
   background: color-mix(in srgb, var(--paper-2) 70%, transparent);
 }
-.ap-tile[data-phone='true'] .ap-pic {
-  aspect-ratio: 390 / 844;
-  border-radius: 8px;
-}
 .ap-pic img {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-.ap-tile[data-phone='true'] .ap-pic img {
-  object-fit: cover;
-  object-position: top;
 }
 .ap-tile:hover .ap-pic,
 .ap-tile:focus-visible .ap-pic {
@@ -2219,33 +2326,6 @@ button.bp-link {
   font-size: 11px;
   color: var(--line-2);
 }
-.ap-pics .ap-phone {
-  flex: none;
-  display: block;
-  position: relative;
-  height: 100%;
-  max-height: 844px;
-  aspect-ratio: 390 / 844;
-  border: 1px solid var(--line-3);
-  border-radius: 22px;
-  overflow: hidden;
-  background: var(--paper-2);
-}
-.ap-phone img,
-.ap-phone iframe {
-  width: 100%;
-  height: 100%;
-  border: 0;
-  object-fit: cover;
-  object-position: top;
-  display: block;
-}
-.ap-phone .ap-none {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-}
 .ap-nav {
   all: unset;
   cursor: pointer;
@@ -2291,16 +2371,6 @@ button.bp-link {
 }
 .cl-addskill .cl-field input:focus {
   border-color: var(--mark);
-}
-.ap-over {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-}
-.ap-pic img[data-state]:not([data-state='ok']),
-.ap-phone img[data-state]:not([data-state='ok']) {
-  opacity: 0;
 }
 .cl-extra-row:has(.cl-del-inline) > button:first-child {
   padding-right: 22px;

@@ -15,8 +15,8 @@ import { MAX_UPLOAD, UPLOADS, WORKSPACE, openOnDesktop, opensSafely, readRaw, sa
 import { addKnowledgeFile, knowledgeDir, knowledgeFor, readKnowledge, removeKnowledgeFile, saveInstructions } from './knowledge.ts'
 import { addSuggested, listExtras, removeSkill, saveSkill, skillsDir, writtenSkill } from './extras.ts'
 import { unzip } from './zip.ts'
-import { appRootOf, assetBytes, imagesOf, loadAppMap } from './appmap.ts'
-import { appShot } from './shots.ts'
+import { APP_MAP_VERSION, appRootOf, assetBytes, imagesOf, loadAppMap } from './appmap.ts'
+import { checkFrame } from './frames.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
 import { closeSite, openSite, reapIdle, stopStudio, studioState, touch } from './studio.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
@@ -83,7 +83,7 @@ class Engine {
   /** An app's floors: the saved map, re-read in the background when the branch has moved on. */
   appFor(id: string, repo: RepoInfo, d: RepoData): AppMap | null {
     const have = this.appMaps.get(id) ?? null
-    if (!d.treeSha || have?.sha === d.treeSha || this.appBusy.has(id) || !this.gh) return have
+    if (!d.treeSha || (have?.sha === d.treeSha && have.version === APP_MAP_VERSION) || this.appBusy.has(id) || !this.gh) return have
     this.appBusy.add(id)
     loadAppMap(this.gh, repo, d.paths, d.treeSha, appRootOf(d.paths))
       .then((m) => {
@@ -346,7 +346,8 @@ class Engine {
       defaultBranch: repo.defaultBranch,
       url,
       previewUrl,
-      localPort: o.localPort ?? d.port,
+      // an app's web build runs on Expo's dev server (npx expo start --web) unless Settings says otherwise
+      localPort: o.localPort ?? (kind === 'app' ? 8081 : d.port),
       claudeProjectUrl: d.claudeProjectUrl,
       status,
       reason,
@@ -906,18 +907,13 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       return res.end(buf)
     }
 
-    case 'GET /api/app/shot': {
-      // a screenshot of the app's live web build, opened on one skin or game mode
+    case 'GET /api/app/frame': {
+      // can one of a project's own addresses be shown live in the dashboard's phone preview?
       const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
-      const q = url.searchParams.get('q') ?? ''
-      if (!p?.app || !p.app.floors.some((f) => f.galleries.some((g) => g.items.some((i) => i.shot === q)))) return json(res, 404, { error: 'not a screen this app shows' })
-      if (!p.url) return json(res, 404, { error: 'Add the app’s web address in Settings to see screenshots' })
-      const shot = await appShot(`${p.url.replace(/\/?$/, '/')}?${q}`, `${p.app.sha}${url.searchParams.get('fresh') ? Date.now() : ''}`)
-      if ('error' in shot) return json(res, 502, shot)
-      res.statusCode = 200
-      res.setHeader('Content-Type', 'image/jpeg')
-      res.setHeader('Cache-Control', 'no-cache')
-      return res.end(shot.jpg)
+      const source = url.searchParams.get('source')
+      const base = !p ? null : source === 'live' ? p.url : source === 'preview' ? p.previewUrl : source === 'local' && p.localPort ? `http://localhost:${p.localPort}/` : null
+      if (!base) return json(res, 404, { error: 'That project has no such address' })
+      return json(res, 200, await checkFrame(base))
     }
 
     case 'POST /api/notes/read': {
