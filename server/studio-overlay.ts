@@ -3,7 +3,8 @@
 // through postMessage. It reports which page is showing, and in Select mode it
 // outlines what's under the pointer, selects what you click, edits text in
 // place (double-click), drags elements with snap-to-align guides, nudges them
-// with the arrow keys, and applies or reverts the edits Blueprint holds.
+// with the arrow keys, and applies or reverts the edits Blueprint holds. For
+// the SEO tab it reads the page's search and share details and checks its links.
 //
 // Written as a plain function and shipped as its source text, so it needs no
 // bundling and works the same from `npm run dev` and the desktop app.
@@ -15,7 +16,8 @@ function overlay() {
 
   interface Op {
     id: string
-    kind: 'text' | 'image' | 'move' | 'order' | 'link' | 'alt' | 'duplicate' | 'hide' | 'add-image'
+    kind: 'text' | 'image' | 'move' | 'order' | 'link' | 'alt' | 'duplicate' | 'hide' | 'add-image' | 'meta'
+    field?: 'title' | 'description' | 'og:title' | 'og:description' | 'og:image'
     page: string
     selector: string
     label: string
@@ -244,6 +246,26 @@ function overlay() {
       img.style.cssText = 'display:block;max-width:100%;height:auto;margin:16px 0'
       el.after(img)
       applied.set(op.id, () => img.remove())
+    } else if (op.kind === 'meta' && op.field) {
+      if (op.field === 'title') {
+        const was = document.title
+        document.title = op.after ?? ''
+        applied.set(op.id, () => (document.title = was))
+      } else {
+        const name = op.field
+        const value = name === 'og:image' ? (op.upload ? `${location.origin}/__studio/upload/${op.upload}` : '') : (op.after ?? '')
+        let tag = metaTag(name)
+        const made = !tag
+        if (!tag) {
+          tag = document.createElement('meta')
+          tag.setAttribute(name === 'description' ? 'name' : 'property', name)
+          document.head.appendChild(tag)
+        }
+        const t = tag
+        const was = t.getAttribute('content')
+        t.setAttribute('content', value)
+        applied.set(op.id, () => (made ? t.remove() : t.setAttribute('content', was ?? '')))
+      }
     } else if (op.kind === 'order') {
       const parent = el.parentElement
       if (!parent) return false
@@ -551,11 +573,147 @@ function overlay() {
     }
   }
 
+  // --- SEO ----------------------------------------------------------------------------------
+
+  const metaTag = (k: string) => document.head.querySelector(`meta[name="${k}"], meta[property="${k}"]`) as HTMLMetaElement | null
+  const metaOf = (k: string) => metaTag(k)?.getAttribute('content')?.trim() || null
+
+  /** What Google and the social networks read from this page. Links are checked when asked (`known`: statuses already found). */
+  async function seoReport(known: Record<string, number>, checkLinks: boolean) {
+    const nav = performance.getEntriesByType('navigation')[0] as (PerformanceNavigationTiming & { responseStatus?: number }) | undefined
+    const headings = [...document.body.querySelectorAll('h1, h2, h3, h4, h5, h6')].filter((h) => !ours(h)).map((h) => ({ level: Number(h.tagName[1]), text: ((h as HTMLElement).innerText || textOf(h)).replace(/\s+/g, ' ').trim().slice(0, 120) }))
+
+    const imgs = ([...document.body.querySelectorAll('img')] as HTMLImageElement[]).filter((i) => !ours(i) && !(i.complete && i.naturalWidth > 0 && i.naturalWidth <= 2))
+    const missingAlt = imgs
+      .filter((img) => {
+        if (img.closest('[aria-hidden="true"]') || img.getAttribute('role') === 'presentation') return false
+        const alt = img.getAttribute('alt')
+        if (alt === null) return true
+        if (alt.trim()) return false
+        // an empty alt marks a decorative image, but on a big photo it's usually a mistake
+        const r = img.getBoundingClientRect()
+        return r.width >= 160 && r.height >= 120
+      })
+      .slice(0, 60)
+      .map((img) => ({ selector: selectorOf(img.closest('picture') ?? img), src: img.currentSrc || img.src }))
+    const seen = new Set<string>()
+    const large = (performance.getEntriesByType('resource') as PerformanceResourceTiming[])
+      .filter((e) => (e.initiatorType === 'img' || /\.(jpe?g|png|webp|avif|gif)(\?|$)/i.test(e.name)) && !e.name.includes('/__studio/'))
+      .map((e) => ({ src: e.name, kb: Math.round((e.encodedBodySize || e.transferSize || 0) / 1024) }))
+      .filter((x) => x.kb > 300 && !seen.has(x.src) && seen.add(x.src))
+
+    const main = (document.querySelector('main') ?? document.body) as HTMLElement
+    const words = (main.innerText.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).length
+
+    const schema = new Set<string>()
+    const types = (v: unknown): void => {
+      if (Array.isArray(v)) return v.forEach(types)
+      if (!v || typeof v !== 'object') return
+      const o = v as Record<string, unknown>
+      for (const t of [o['@type']].flat()) if (typeof t === 'string') schema.add(t)
+      if (o['@graph']) types(o['@graph'])
+    }
+    for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+      try {
+        types(JSON.parse(s.textContent ?? ''))
+      } catch {
+        /* not valid JSON: Google ignores it too */
+      }
+    }
+
+    const internal = new Set<string>()
+    let external = 0
+    for (const a of document.body.querySelectorAll('a[href]')) {
+      const raw = (a.getAttribute('href') ?? '').trim()
+      if (!raw || raw.startsWith('#') || /^(mailto|tel|sms|javascript|whatsapp):/i.test(raw)) continue
+      let u: URL
+      try {
+        u = new URL(raw, location.href)
+      } catch {
+        continue
+      }
+      if (u.origin !== location.origin) {
+        if (/^https?:$/.test(u.protocol)) external++
+        continue
+      }
+      if (!u.pathname.startsWith('/__studio/')) internal.add(u.pathname)
+    }
+    const statuses: Record<string, number> = {}
+    const todo: string[] = []
+    for (const p of internal) {
+      if (known[p] !== undefined) statuses[p] = known[p]
+      else todo.push(p)
+    }
+    const status = async (p: string) => {
+      try {
+        let r = await fetch(p, { method: 'HEAD', cache: 'no-store' })
+        // some dev servers don't answer HEAD: make sure before calling it broken
+        if (r.status >= 400) r = await fetch(p, { cache: 'no-store' })
+        return r.status
+      } catch {
+        return 0
+      }
+    }
+    if (checkLinks) {
+      const queue = todo.slice(0, 120)
+      await Promise.all(
+        Array.from({ length: 4 }, async () => {
+          for (let p = queue.shift(); p !== undefined; p = queue.shift()) statuses[p] = await status(p)
+        }),
+      )
+    }
+    let favicon = !!document.querySelector('link[rel~="icon"]')
+    if (!favicon) favicon = known['/favicon.ico'] === 200 || (await status('/favicon.ico')) === 200
+
+    return {
+      path: location.pathname,
+      url: location.href,
+      status: nav?.responseStatus || 200,
+      title: document.title.trim(),
+      description: metaOf('description'),
+      canonical: document.head.querySelector('link[rel="canonical"]')?.getAttribute('href') ?? null,
+      robots: metaOf('robots'),
+      lang: document.documentElement.lang || '',
+      viewport: !!metaTag('viewport'),
+      favicon,
+      og: { title: metaOf('og:title'), description: metaOf('og:description'), image: metaOf('og:image'), url: metaOf('og:url'), type: metaOf('og:type') },
+      twitter: metaOf('twitter:card'),
+      headings,
+      images: { total: imgs.length, missingAlt, large },
+      words,
+      schema: [...schema],
+      links: {
+        internal: internal.size,
+        external,
+        broken: Object.entries(statuses)
+          .filter(([, c]) => c >= 400)
+          .map(([href, c]) => ({ href, status: c })),
+        statuses,
+        checked: checkLinks,
+      },
+      // Studio fills these in from the repo
+      site: { robots: true, sitemap: true },
+    }
+  }
+
+  let seoAsked = 0
+  async function sendSeo(known: Record<string, number>, links: boolean) {
+    const n = ++seoAsked
+    // the details at once, then again when the links have been checked
+    post({ type: 'seo', report: await seoReport(known, false) })
+    if (!links) return
+    // photo sizes are only known once they've loaded
+    if (document.readyState !== 'complete') await new Promise((done) => (addEventListener('load', done, { once: true }), setTimeout(done, 8000)))
+    const full = await seoReport(known, true)
+    if (n === seoAsked) post({ type: 'seo', report: full })
+  }
+
   // --- Messages from Studio -----------------------------------------------------------------
 
   addEventListener('message', (e) => {
     if (e.source !== window.parent || !e.data || e.data.studio !== true) return
-    const d = e.data as { type: string; mode?: 'browse' | 'select'; selector?: string; op?: Op; ops?: Op[]; id?: string; on?: boolean; scale?: number }
+    const d = e.data as { type: string; mode?: 'browse' | 'select'; selector?: string; op?: Op; ops?: Op[]; id?: string; on?: boolean; scale?: number; known?: Record<string, number>; links?: boolean }
+    if (d.type === 'seo-request') void sendSeo(d.known && typeof d.known === 'object' ? d.known : {}, !!d.links)
     if (d.type === 'mode' && d.mode) setMode(d.mode)
     if (d.type === 'snap') snapOn = !!d.on
     if (d.type === 'scale' && d.scale) scale = d.scale

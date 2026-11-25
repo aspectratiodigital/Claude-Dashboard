@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Project, StudioElement, StudioOp, StudioResult, StudioSite } from '../data/types'
+import type { Project, SeoReport, StudioElement, StudioMetaField, StudioOp, StudioResult, StudioSite } from '../data/types'
 import { opNote } from '../data/studio'
+import { SeoPanel, SiteCrawl, type Crawl } from './StudioSeo'
 import { useData } from '../data/store'
 import { relTime } from '../data/derive'
 import { useApp } from '../store'
@@ -78,6 +79,7 @@ export function parseRatio(s: string): number | null {
 const clampPx = (n: number) => Math.max(240, Math.min(3840, Math.round(n) || 0))
 
 const isSite = (p: Project) => (p.kind ?? 'site') !== 'app'
+const newId = () => Math.random().toString(36).slice(2, 10)
 
 // --- Server state -------------------------------------------------------------------------
 
@@ -131,7 +133,7 @@ function useStudioSite(projectId: string | null) {
 
 // --- Edits held on the canvas ------------------------------------------------------------
 
-type Tab = 'element' | 'changes' | 'claude'
+type Tab = 'element' | 'seo' | 'changes' | 'claude'
 
 const opsKey = (id: string) => `ard.studio.ops.${id}`
 
@@ -238,6 +240,11 @@ function StudioView({ projectId }: { projectId: string }) {
   const [review, setReview] = useState(false)
   const [scale, setScale] = useState(1)
   const frames = useRef<(HTMLIFrameElement | null)[]>([])
+  const [seo, setSeo] = useState<SeoReport | null>(null)
+  const [crawl, setCrawl] = useState<Crawl | null>(null)
+  const [claudeDraft, setClaudeDraft] = useState('')
+  /** link statuses found so far (path → HTTP status), so each link is only checked once */
+  const linkCache = useRef<Record<string, number>>({})
 
   const setOps = useCallback(
     (fn: (o: StudioOp[]) => StudioOp[]) =>
@@ -263,8 +270,13 @@ function StudioView({ projectId }: { projectId: string }) {
   }
 
   // the latest values, for the message handler without re-binding it
-  const state = useRef({ ops, tool, scale, snap: view.snap })
-  state.current = { ops, tool, scale, snap: view.snap }
+  const state = useRef({ ops, tool, scale, snap: view.snap, tab })
+  state.current = { ops, tool, scale, snap: view.snap, tab }
+
+  /** ask the main canvas for the page's SEO details (the answer arrives as a message) */
+  const requestSeo = useCallback(() => {
+    frames.current[0]?.contentWindow?.postMessage({ studio: true, type: 'seo-request', known: linkCache.current, links: true }, '*')
+  }, [])
 
   const undo = useCallback(() => {
     const last = state.current.ops[state.current.ops.length - 1]
@@ -294,15 +306,26 @@ function StudioView({ projectId }: { projectId: string }) {
     if (!origin) return
     const on = (e: MessageEvent) => {
       if (e.origin !== origin || !e.data || e.data.studio !== true) return
-      const d = e.data as { type: string; path?: string; element?: StudioElement | null; op?: StudioOp; key?: string; shift?: boolean; on?: boolean }
+      const d = e.data as { type: string; path?: string; element?: StudioElement | null; op?: StudioOp; key?: string; shift?: boolean; on?: boolean; report?: SeoReport }
       const src = e.source as Window | null
+      // only the canvases (the site-wide SEO check runs its own hidden page)
+      if (!src || !frames.current.some((f) => f?.contentWindow === src)) return
+      const main = frames.current[0]?.contentWindow === src
       if (d.type === 'ready') {
-        src?.postMessage({ studio: true, type: 'mode', mode: state.current.tool }, origin)
-        src?.postMessage({ studio: true, type: 'snap', on: state.current.snap }, origin)
-        src?.postMessage({ studio: true, type: 'scale', scale: state.current.scale }, origin)
-        src?.postMessage({ studio: true, type: 'apply-all', ops: state.current.ops }, origin)
+        src.postMessage({ studio: true, type: 'mode', mode: state.current.tool }, origin)
+        src.postMessage({ studio: true, type: 'snap', on: state.current.snap }, origin)
+        src.postMessage({ studio: true, type: 'scale', scale: state.current.scale }, origin)
+        src.postMessage({ studio: true, type: 'apply-all', ops: state.current.ops }, origin)
+        if (main) {
+          setSeo(null)
+          if (state.current.tab === 'seo') src.postMessage({ studio: true, type: 'seo-request', known: linkCache.current, links: true }, origin)
+        }
       }
-      if (d.type === 'page' && d.path) setPath(d.path)
+      if (d.type === 'seo' && d.report && main) {
+        Object.assign(linkCache.current, d.report.links.statuses)
+        setSeo(d.report)
+      }
+      if (d.type === 'page' && d.path && main) setPath(d.path)
       if (d.type === 'select') setSelected(d.element ?? null)
       if (d.type === 'op' && d.op) {
         const op = d.op
@@ -326,6 +349,17 @@ function StudioView({ projectId }: { projectId: string }) {
     window.addEventListener('message', on)
     return () => window.removeEventListener('message', on)
   }, [origin, tell, setOps, undo, redoLast])
+
+  // the SEO tab follows the page and its edits
+  useEffect(() => {
+    if (tab !== 'seo' || !live) return
+    const t = setTimeout(requestSeo, 250)
+    return () => clearTimeout(t)
+  }, [tab, live, ops, requestSeo])
+  // after a save or a sync, links may have been fixed: check them again
+  useEffect(() => {
+    linkCache.current = {}
+  }, [nav.nonce, site?.sha])
 
   useEffect(() => {
     tell({ type: 'mode', mode: tool })
@@ -400,6 +434,66 @@ function StudioView({ projectId }: { projectId: string }) {
       say((e as Error).message)
     }
   }
+
+  // --- SEO tab: page details and alt text become edits on the canvas like any other
+
+  /** one edit per page and detail, updated as you change it again */
+  const setMeta = (field: StudioMetaField, value: string, photo?: { id: string; name: string }) => {
+    if (!seo) return
+    const page = seo.path
+    const existing = ops.find((o): o is Extract<StudioOp, { kind: 'meta' }> => o.kind === 'meta' && o.page === page && o.field === field)
+    const now = { title: seo.title, description: seo.description, 'og:title': seo.og.title, 'og:description': seo.og.description, 'og:image': seo.og.image }[field] ?? ''
+    const original = existing ? existing.before : now
+    const after = value.replace(/\s+/g, ' ').trim()
+    if (existing) tell({ type: 'revert', id: existing.id })
+    if (!photo && after === original.trim()) {
+      // changed back to how it was
+      if (existing) setOps((o) => o.filter((x) => x.id !== existing.id))
+      return
+    }
+    const op: StudioOp = { id: existing?.id ?? newId(), kind: 'meta', page, selector: 'head', label: 'Page details', text: '', field, before: original, after: photo ? photo.name : after, ...(photo ? { upload: photo.id, name: photo.name } : {}) }
+    tell({ type: 'apply', op })
+    setOps((o) => (existing ? o.map((x) => (x.id === op.id ? op : x)) : [...o, op]))
+    setRedo([])
+  }
+
+  const setAltFor = (selector: string, src: string, value: string) => {
+    if (!seo) return
+    const file = src.split('/').pop()?.split('?')[0] ?? 'photo'
+    const op: StudioOp = { id: newId(), kind: 'alt', page: seo.path, selector, label: `Image ${file}`, text: '', before: '', after: value }
+    tell({ type: 'apply', op })
+    setOps((o) => [...o, op])
+    setRedo([])
+  }
+
+  const chooseShareImage = async () => {
+    const file = await chooseImage()
+    if (!file) return
+    try {
+      say('Uploading the share image…')
+      const u = await upload(file)
+      setMeta('og:image', u.name, u)
+      say('Share image set. Save to put it in the site.')
+    } catch (e) {
+      say((e as Error).message)
+    }
+  }
+
+  /** an SEO fix that needs Claude: ready to send in the Claude tab, about the whole page */
+  const askAbout = (prompt: string) => {
+    setSelected(null)
+    tell({ type: 'clear' })
+    setClaudeDraft(prompt)
+    setTab('claude')
+  }
+
+  const startCrawl = () => {
+    const pages = (site?.pages ?? []).map((p) => p.path)
+    if (pages.length) setCrawl({ queue: pages, total: pages.length, reports: {} })
+  }
+  const crawled = useCallback((page: string, report: SeoReport | null) => {
+    setCrawl((c) => (c && c.queue[0] === page ? { ...c, queue: c.queue.slice(1), reports: { ...c.reports, [page]: report } } : c))
+  }, [])
 
   const save = async () => {
     if (!ops.length) return
@@ -533,6 +627,7 @@ function StudioView({ projectId }: { projectId: string }) {
               {(
                 [
                   ['element', 'Element'],
+                  ['seo', 'SEO'],
                   ['changes', `Changes${ops.length ? ` (${ops.length})` : ''}`],
                   ['claude', 'Claude'],
                 ] as const
@@ -561,10 +656,35 @@ function StudioView({ projectId }: { projectId: string }) {
               ) : (
                 <Hints tool={tool} onEdit={() => setTool('select')} />
               ))}
+            {tab === 'seo' && site && origin && (
+              <SeoPanel
+                report={seo}
+                site={site}
+                project={project}
+                origin={origin}
+                ops={ops}
+                crawl={crawl}
+                working={working}
+                onMeta={setMeta}
+                onShareImage={() => void chooseShareImage()}
+                onAlt={setAltFor}
+                onClaude={askAbout}
+                onReveal={(selector) => tell({ type: 'reveal', selector })}
+                onCrawl={startCrawl}
+                onStopCrawl={() => setCrawl((c) => (c ? { ...c, queue: [] } : c))}
+                onGo={go}
+                onRefresh={() => {
+                  setSeo(null)
+                  linkCache.current = {}
+                  requestSeo()
+                }}
+              />
+            )}
             {tab === 'changes' && <Changes ops={ops} site={site} onRemove={removeOp} onSave={save} onReview={() => setReview(true)} working={working} />}
-            {tab === 'claude' && <ClaudePanel site={site} element={selected} onAsk={ask} working={working} />}
+            {tab === 'claude' && <ClaudePanel site={site} element={selected} onAsk={ask} working={working} text={claudeDraft} setText={setClaudeDraft} />}
           </aside>
         )}
+        {crawl && crawl.queue.length > 0 && origin && live && <SiteCrawl key={crawl.queue[0]} origin={origin} path={crawl.queue[0]} ops={ops} known={linkCache} onReport={crawled} />}
       </div>
       {review && site && <Review site={site} project={project} onClose={() => setReview(false)} />}
     </div>
@@ -837,8 +957,7 @@ function Result({ r }: { r: StudioResult }) {
   )
 }
 
-function ClaudePanel({ site, element, onAsk, working }: { site: StudioSite | null; element: StudioElement | null; onAsk: (p: string) => void; working: boolean }) {
-  const [text, setText] = useState('')
+function ClaudePanel({ site, element, onAsk, working, text, setText }: { site: StudioSite | null; element: StudioElement | null; onAsk: (p: string) => void; working: boolean; text: string; setText: (s: string) => void }) {
   const send = () => {
     if (!text.trim() || working) return
     onAsk(text.trim())

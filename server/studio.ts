@@ -4,7 +4,7 @@ import net from 'node:net'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { spawn, type ChildProcess } from 'node:child_process'
-import type { Project, StudioElement, StudioKind, StudioOp, StudioPage, StudioResult, StudioSite } from '../src/data/types.ts'
+import type { Project, StudioElement, StudioKind, StudioMetaField, StudioOp, StudioPage, StudioResult, StudioSeoSite, StudioSite } from '../src/data/types.ts'
 import { commitTitle, opNote } from '../src/data/studio.ts'
 import { ask, quoteForCmd } from './assistant.ts'
 import { DATA_DIR, log } from './util.ts'
@@ -59,13 +59,14 @@ export function detectKind(folder: string): { kind: StudioKind; root: string; bu
 const AS_NODE = { ELECTRON_RUN_AS_NODE: '1' }
 
 /** Run a command, resolving with its output; never throws. */
-function run(cmd: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv, timeout = 10 * 60_000): Promise<{ ok: boolean; out: string }> {
+/** Run a command; `keep` is how much of the end of its output to hold on to. */
+function run(cmd: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv, timeout = 10 * 60_000, keep = 20_000): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
     const win = process.platform === 'win32' && /^(npm|npx)$/.test(cmd)
     const child = spawn(win ? `${cmd}.cmd` : cmd, args, { cwd, env: { ...process.env, ...env }, windowsHide: true, shell: win })
     let out = ''
     const add = (b: Buffer) => {
-      out = (out + b.toString()).slice(-20_000)
+      out = (out + b.toString()).slice(-keep)
     }
     child.stdout?.on('data', add)
     child.stderr?.on('data', add)
@@ -100,7 +101,7 @@ function folderOf(p: Project) {
 }
 
 function blank(p: Project): StudioSite {
-  return { projectId: p.id, repo: p.repo, branch: p.defaultBranch, kind: 'unknown', status: 'idle', message: '', port: null, sha: null, commit: null, committed: null, changed: [], notes: [], pages: [], last: null }
+  return { projectId: p.id, repo: p.repo, branch: p.defaultBranch, kind: 'unknown', status: 'idle', message: '', port: null, sha: null, commit: null, committed: null, changed: [], notes: [], pages: [], seo: null, last: null }
 }
 
 export function studioState(p: Project): StudioSite {
@@ -177,6 +178,7 @@ async function prepare(r: Runtime, p: Project, token: string | null) {
   if (kind === 'astro') await startAstro(r)
   await startPreview(r, root)
   r.site.pages = listPages(dir, kind, root, p)
+  r.site.seo = siteSeo(dir, kind, root)
   set(r, 'ready', '')
 }
 
@@ -500,6 +502,35 @@ const decodeHtml = (s: string) =>
     .replace(/&gt;/g, '>')
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
 
+/**
+ * Whether the site has a robots.txt and a sitemap. Read from the repo rather than
+ * the preview, because Astro's sitemap integration only writes one on build.
+ */
+function siteSeo(dir: string, kind: StudioKind, root: string): StudioSeoSite {
+  const has = (...files: string[]) => files.some((f) => fs.existsSync(path.join(f)))
+  const where = [...new Set([root, dir, path.join(dir, 'public'), path.join(dir, 'src'), path.join(dir, 'static')])]
+  let robots = has(...where.map((d) => path.join(d, 'robots.txt')))
+  let sitemap = has(...where.flatMap((d) => ['sitemap.xml', 'sitemap-index.xml', 'sitemap_index.xml'].map((f) => path.join(d, f))))
+  // an Astro endpoint (src/pages/robots.txt.ts) or integration, or a build script that writes them
+  const pagesDir = path.join(dir, 'src', 'pages')
+  if (fs.existsSync(pagesDir)) {
+    const names = fs.readdirSync(pagesDir)
+    robots ||= names.some((n) => n.startsWith('robots.txt'))
+    sitemap ||= names.some((n) => n.startsWith('sitemap'))
+  }
+  const configs = ['astro.config.mjs', 'astro.config.ts', 'astro.config.js', 'package.json', 'build.mjs', 'src/build.mjs', 'build-v2/build.js']
+  for (const c of configs) {
+    const f = path.join(dir, c)
+    if (!fs.existsSync(f)) continue
+    const body = fs.readFileSync(f, 'utf8')
+    if (kind === 'astro' || c.includes('build')) {
+      sitemap ||= /@astrojs\/sitemap|sitemap(-index)?\.xml/.test(body)
+      robots ||= /astro-robots-txt|robots\.txt/.test(body)
+    }
+  }
+  return { robots, sitemap }
+}
+
 // --- Lifecycle ------------------------------------------------------------------------------
 
 /** Stop a site's preview and dev server (they start again when it's next opened). */
@@ -635,12 +666,14 @@ function direct(op: StudioOp, files: string[], dir: string): string | null {
   if (op.kind === 'text') return swap(op.before, op.after)
   if (op.kind === 'alt') return swap(op.before, op.after)
   if (op.kind === 'link' && op.before.length > 1 && !/^#?$/.test(op.before)) return swap(op.before, op.after)
+  // a title or description written out in full in one place (a page's own <head>, its data entry)
+  if (op.kind === 'meta' && op.field !== 'og:image' && op.before.trim().length >= 12) return swap(op.before, op.after)
   return null
 }
 
 /** Copy a swapped-in photo into the repo, next to the photo it replaces where Studio can tell. Returns its repo path. */
-function placeUpload(r: Runtime, op: Extract<StudioOp, { upload: string }>): string | null {
-  const from = uploadPath(op.upload)
+function placeUpload(r: Runtime, op: { kind: StudioOp['kind']; upload?: string; name?: string; before?: string }): string | null {
+  const from = op.upload ? uploadPath(op.upload) : null
   if (!from) return null
   const dir = r.folder
   const { root, kind } = detectKind(dir)
@@ -656,7 +689,8 @@ function placeUpload(r: Runtime, op: Extract<StudioOp, { upload: string }>): str
     }
   }
   if (!target) {
-    const options = kind === 'astro' ? ['src/assets/photos', 'src/assets/images', 'src/assets', 'public/images', 'public'] : ['img', 'images', 'assets/img', 'assets/images', 'assets', 'src/img']
+    // a share image needs a plain public address, so on Astro it goes in public/ rather than through the image pipeline
+    const options = kind === 'astro' && op.kind === 'meta' ? ['public/images', 'public/img', 'public'] : kind === 'astro' ? ['src/assets/photos', 'src/assets/images', 'src/assets', 'public/images', 'public'] : ['img', 'images', 'assets/img', 'assets/images', 'assets', 'src/img']
     const found = options.map((o) => path.join(dir, o)).find((o) => fs.existsSync(o))
     target = found ?? path.join(dir, kind === 'astro' ? 'public/images' : 'images')
   }
@@ -708,7 +742,29 @@ function instruction(op: StudioOp, placed: Map<string, string>): string {
       return op.scope === 'everywhere'
         ? `${on}, remove ${el} from the page (or its data entry).`
         : `${on}, hide ${el} at screen widths like ${op.width}px (use the site's breakpoint that contains ${op.width}px) and keep it at other sizes.`
+    case 'meta':
+      return metaInstruction(op, placed)
   }
+}
+
+const META_TAG: Record<StudioMetaField, string> = {
+  title: 'the <title> (what Google shows as the headline)',
+  description: 'the <meta name="description"> (the text under the headline on Google)',
+  'og:title': 'the og:title and twitter:title tags (the headline when the page is shared)',
+  'og:description': 'the og:description and twitter:description tags (the text when the page is shared)',
+  'og:image': 'the og:image and twitter:image tags (the picture when the page is shared)',
+}
+
+function metaInstruction(op: Extract<StudioOp, { kind: 'meta' }>, placed: Map<string, string>): string {
+  const on = `On the page ${op.page}`
+  const how = 'Set it where the site sets it for this page (its own <head>, front matter, page data or the props it passes to a shared layout), not in the shared template for every page, and add the tag if the page has none. Keep the site’s pattern, e.g. if titles end in “| Business name”.'
+  if (op.field === 'og:image') {
+    const file = placed.get(op.id)
+    return file
+      ? `${on}, set ${META_TAG['og:image']} to the new image Studio saved at \`${file}\`, as an absolute URL on the live site's address (where the site's other share tags use one), with twitter:card summary_large_image. ${how}`
+      : `${on}, a new share image was chosen, but the file couldn't be copied in. Skip this one and say so.`
+  }
+  return `${on}, set ${META_TAG[op.field]} to “${op.after}”${op.before ? ` (it is now “${op.before}”)` : ''}. ${how}`
 }
 
 function editPrompt(p: Project, kind: StudioKind, ops: StudioOp[], placed: Map<string, string>) {
@@ -816,7 +872,7 @@ export function saveOps(p: Project, ops: StudioOp[], exe: string | null) {
       else rest.push(op)
     }
     const placed = new Map<string, string>()
-    for (const op of rest) if (op.kind === 'image' || op.kind === 'add-image') {
+    for (const op of rest) if (op.kind === 'image' || op.kind === 'add-image' || (op.kind === 'meta' && op.upload)) {
       const at = placeUpload(r, op)
       if (at) placed.set(op.id, at)
     }
@@ -892,7 +948,9 @@ export async function diffOf(p: Project): Promise<string> {
   const r = sites.get(p.id)
   if (!r) return ''
   await run('git', ['add', '-A', '--intent-to-add'], r.folder)
-  const d = await run('git', ['diff', '--no-color', '--', '.', ':(exclude)*.min.*'], r.folder)
+  // a generated site's pages are build output: the review shows the source edits that made them
+  const skip = detectKind(r.folder).kind === 'generated' ? [':(exclude)*.html'] : []
+  const d = await run('git', ['diff', '--no-color', '--', '.', ':(exclude)*.min.*', ...skip], r.folder, undefined, 60_000, 3_000_000)
   await run('git', ['reset', '-q'], r.folder)
   return d.out.length > 400_000 ? d.out.slice(0, 400_000) + '\n… (cut short)' : d.out
 }

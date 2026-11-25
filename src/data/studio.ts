@@ -8,6 +8,8 @@ const cut = (s: string, n = 40) => {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t
 }
 
+const META_NAME = { title: 'Google title', description: 'Google description', 'og:title': 'social share title', 'og:description': 'social share description', 'og:image': 'social share image' } as const
+
 const where = (page: string) => (page === '/' ? 'home page' : page)
 
 export function opNote(op: StudioOp): string {
@@ -33,6 +35,8 @@ export function opNote(op: StudioOp): string {
       return `Duplicate ${op.text ? `“${cut(op.text, 30)}”` : op.label} on the ${on}`
     case 'hide':
       return `${op.scope === 'everywhere' ? 'Remove' : `Hide at ${op.width}px wide`} ${op.text ? `“${cut(op.text, 30)}”` : op.label} on the ${on}`
+    case 'meta':
+      return op.field === 'og:image' ? `Set the social share image of the ${on}` : `Set the ${META_NAME[op.field]} of the ${on} to “${cut(op.after, 50)}”`
   }
 }
 

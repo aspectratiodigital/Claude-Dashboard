@@ -653,7 +653,8 @@ function sameOrigin(req: IncomingMessage) {
   }
 }
 
-const OP_KINDS = new Set(['text', 'image', 'move', 'order', 'link', 'alt', 'duplicate', 'hide', 'add-image'])
+const OP_KINDS = new Set(['text', 'image', 'move', 'order', 'link', 'alt', 'duplicate', 'hide', 'add-image', 'meta'])
+const META_FIELDS = new Set(['title', 'description', 'og:title', 'og:description', 'og:image'])
 
 /** A canvas edit from the browser, checked before it goes anywhere near the repo or a prompt. */
 function validOp(o: unknown): o is StudioOp {
@@ -662,6 +663,11 @@ function validOp(o: unknown): o is StudioOp {
   const str = (k: string, max = 2000) => typeof x[k] === 'string' && (x[k] as string).length <= max
   if (!OP_KINDS.has(x.kind as string) || !str('id', 40) || !str('page', 400) || !str('selector', 1000) || !str('label', 200) || !str('text', 2000)) return false
   if (x.kind === 'image' || x.kind === 'add-image') return str('upload', 40) && /^[a-z0-9]{6,24}$/.test(x.upload as string)
+  if (x.kind === 'meta') {
+    if (!META_FIELDS.has(x.field as string) || !str('before', 1000) || !str('after', 1000)) return false
+    if (x.upload !== undefined && !(str('upload', 40) && /^[a-z0-9]{6,24}$/.test(x.upload as string))) return false
+    return x.field !== 'og:image' || typeof x.upload === 'string'
+  }
   if (x.kind === 'move') return Number.isFinite(x.dx) && Number.isFinite(x.dy) && Number.isFinite(x.width) && Array.isArray(x.snapped)
   return true
 }
