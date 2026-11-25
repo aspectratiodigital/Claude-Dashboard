@@ -25,6 +25,7 @@ export function CommandPalette() {
     const out: Action[] = []
     for (const p of projects) {
       out.push({ id: `open-${p.id}`, label: `Open ${p.name}`, hint: `${STATUS_LABEL[p.status]} · ${p.reason}`, run: () => st.select(p.id) })
+      if (p.kind !== 'app') out.push({ id: `studio-${p.id}`, label: `${p.name}: edit in Studio`, hint: 'Studio', run: () => st.openStudio(p.id) })
       const src = sourcesFor(p)[0]
       if (src) {
         out.push({ id: `desk-${p.id}`, label: `${p.name}: fullscreen desktop`, hint: 'Preview', run: () => enterStage({ projectId: p.id, device: 'desktop', source: src, path: '/' }) })

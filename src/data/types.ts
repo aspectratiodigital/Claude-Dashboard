@@ -381,3 +381,45 @@ export interface Snapshot {
   rate: { remaining: number; limit: number; reset: number } | null
   errors: string[]
 }
+
+// --- Studio (the visual site builder) -----------------------------------------------------
+
+/** how a site is built, which decides how Studio previews it */
+export type StudioKind = 'static' | 'generated' | 'astro' | 'shopify' | 'app' | 'unknown'
+
+export interface StudioPage {
+  path: string
+  title: string | null
+}
+
+export interface StudioSite {
+  projectId: string
+  repo: string
+  branch: string
+  kind: StudioKind
+  status: 'idle' | 'syncing' | 'installing' | 'building' | 'starting' | 'ready' | 'unsupported' | 'error'
+  /** what it's doing, or why it can't */
+  message: string
+  /** the preview server on 127.0.0.1 */
+  port: number | null
+  /** the commit the local copy is on */
+  sha: string | null
+  commit: string | null
+  committed: string | null
+  /** files changed in Studio's copy and not yet published */
+  changed: string[]
+  pages: StudioPage[]
+}
+
+/** what the overlay reports about the element you clicked in Select mode */
+export interface StudioElement {
+  selector: string
+  tag: string
+  label: string
+  text: string
+  image: { src: string; alt: string; width: number; height: number } | null
+  href: string | null
+  rect: { x: number; y: number; w: number; h: number }
+  style: { font: string; color: string; background: string; padding: string; margin: string }
+  children: number
+}

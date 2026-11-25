@@ -1,0 +1,446 @@
+/* Studio: the visual site builder. A neutral dark workspace (like the
+   fullscreen preview) so the site on the canvas is the only colour. */
+
+.studio {
+  --st-bg: #0c0d10;
+  --st-panel: #121318;
+  --st-raised: #1b1d23;
+  --st-line: #23252b;
+  --st-line-2: #2c2f37;
+  --st-fg: #e9eaee;
+  --st-muted: #8b8f9a;
+  --st-ac: #2f7dff;
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: flex;
+  flex-direction: column;
+  background: var(--st-bg);
+  color: var(--st-fg);
+  font: 13px/1.3 'Manrope', system-ui, sans-serif;
+  animation: st-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes st-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.st-bar {
+  height: 52px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--st-line);
+  background: var(--st-panel);
+  min-width: 0;
+}
+.st-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.st-gap {
+  flex: 1;
+  min-width: 4px;
+}
+.st-bar select,
+.st-bar input,
+.st-frame select {
+  font: inherit;
+  color: inherit;
+  background: var(--st-raised);
+  border: 1px solid var(--st-line-2);
+  border-radius: 8px;
+  padding: 5px 8px;
+  min-width: 0;
+}
+.st-bar select:focus-visible,
+.st-bar input:focus-visible {
+  outline: 2px solid var(--st-ac);
+  outline-offset: 1px;
+}
+.st-site {
+  max-width: 190px;
+  font-weight: 600 !important;
+}
+.st-page {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.st-page select {
+  width: 150px;
+}
+.st-page input {
+  width: 150px;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 12px !important;
+}
+.st-seg {
+  display: inline-flex;
+  background: var(--st-raised);
+  border-radius: 9px;
+  padding: 2px;
+  flex: none;
+}
+.st-seg button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  color: #a9adb8;
+  white-space: nowrap;
+}
+.st-seg button:hover {
+  color: #fff;
+}
+.st-seg button[aria-pressed='true'] {
+  background: #f1f2f5;
+  color: #111318;
+}
+.st-btn {
+  all: unset;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  color: #c9ccd4;
+}
+.st-btn:hover:not(:disabled) {
+  background: #22242b;
+  color: #fff;
+}
+.st-btn[aria-pressed='true'] {
+  background: #f1f2f5;
+  color: #111318;
+}
+.st-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.st-seg button:focus-visible,
+.st-btn:focus-visible,
+.st-pill:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+.st-zoom {
+  width: 70px;
+}
+.st-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--st-muted);
+}
+.st-custom input {
+  width: 52px;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 12px !important;
+}
+.st-custom .st-ratio {
+  width: 62px;
+  margin-left: 4px;
+}
+
+/* the line under the bar: which commit you're looking at, or what it's doing */
+.st-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--st-line);
+  color: var(--st-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.st-status b {
+  color: var(--st-fg);
+  font-weight: 600;
+}
+.st-status code {
+  font: 12px 'JetBrains Mono', monospace;
+  color: var(--st-fg);
+  background: var(--st-raised);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+.st-commit {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  color: #c3c6cf;
+}
+.st-kind,
+.st-changed {
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 1px solid var(--st-line-2);
+  border-radius: 99px;
+}
+.st-changed {
+  margin-left: 0;
+  border-color: #b98a1d;
+  color: #ffcc4d;
+}
+.st-status[data-tone='busy'] {
+  color: #c3c6cf;
+}
+.st-status[data-tone='bad'] {
+  color: #ff8a8a;
+  white-space: normal;
+  padding-block: 6px;
+}
+.st-spin {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: st-spin 0.8s linear infinite;
+  flex: none;
+}
+.st-spin-lg {
+  width: 26px;
+  height: 26px;
+  border-width: 3px;
+  color: var(--st-ac);
+}
+@keyframes st-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* canvas: the site at the chosen size, scaled to fit */
+.st-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.st-canvas {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 1px 1px, #22242b 1px, transparent 0) 0 0 / 22px 22px,
+    var(--st-bg);
+}
+.st-canvas[data-zoomed] {
+  overflow: auto;
+  place-items: start center;
+  padding: 28px;
+}
+.st-frames {
+  display: flex;
+  align-items: flex-start;
+}
+.st-frame {
+  margin: 0;
+  flex: none;
+  animation: st-in 0.3s ease-out;
+}
+.st-frame figcaption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  color: var(--st-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.st-frame figcaption b {
+  color: var(--st-fg);
+  font-weight: 600;
+}
+.st-frame figcaption select {
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.st-pct {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+}
+.st-screen {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px #2b2d33,
+    0 30px 90px -30px rgba(0, 0, 0, 0.9);
+}
+.st-screen iframe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 0;
+  display: block;
+  background: #fff;
+  transform-origin: 0 0;
+}
+.st-empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  max-width: 440px;
+  text-align: center;
+  color: #c3c6cf;
+  padding: 24px;
+}
+.st-empty p {
+  margin: 0;
+  font-size: 14px;
+}
+.st-empty small {
+  color: var(--st-muted);
+}
+.st-empty[data-tone='bad'] p {
+  color: #ff8a8a;
+}
+.st-pill {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  background: var(--st-raised);
+  border: 1px solid var(--st-line-2);
+  color: var(--st-fg);
+  font-size: 12px;
+}
+.st-pill:hover {
+  border-color: var(--st-muted);
+}
+
+/* inspector: what you clicked in Select mode */
+.st-inspector {
+  width: 290px;
+  flex: none;
+  overflow-y: auto;
+  border-left: 1px solid var(--st-line);
+  background: var(--st-panel);
+  padding: 12px 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: st-slide 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes st-slide {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+}
+.st-inspector header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.st-inspector header b {
+  font-size: 14px;
+}
+.st-inspector .st-btn {
+  width: 28px;
+  height: 28px;
+}
+.st-img {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.st-img img {
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  background: repeating-conic-gradient(#1f2127 0% 25%, #17191e 0% 50%) 0 0 / 16px 16px;
+  border-radius: 6px;
+}
+.st-img figcaption {
+  color: var(--st-muted);
+  font-size: 11px;
+  word-break: break-all;
+}
+.st-text {
+  margin: 0;
+  padding: 10px;
+  background: var(--st-raised);
+  border-radius: 8px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.st-inspector dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  font-size: 12px;
+}
+.st-inspector dt {
+  color: var(--st-muted);
+}
+.st-inspector dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.st-inspector dd em {
+  color: #ffcc4d;
+}
+.st-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px #3a3d45;
+  flex: none;
+}
+.st-selector {
+  font: 11px 'JetBrains Mono', monospace;
+  color: var(--st-muted);
+  overflow-wrap: anywhere;
+}
+.st-inspector .st-pill {
+  align-self: flex-start;
+}
+
+/* narrow windows: keep the bar on one line by dropping words, then wrapping */
+@media (max-width: 1500px) {
+  .st-seg button span {
+    display: none;
+  }
+}
+@media (max-width: 1100px) {
+  .st-bar {
+    height: auto;
+    flex-wrap: wrap;
+    padding-block: 8px;
+  }
+  .st-gap {
+    display: none;
+  }
+}

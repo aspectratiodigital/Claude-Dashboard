@@ -45,6 +45,41 @@ export const Icon = {
       <path d="M11 18.5h2" />
     </S>
   ),
+  tablet: (p: P) => (
+    <S {...p}>
+      <rect x="5" y="2.5" width="14" height="19" rx="2" />
+      <path d="M11 18.5h2" />
+    </S>
+  ),
+  pointer: (p: P) => (
+    <S {...p}>
+      <path d="M5 3l14 7-6 2-2 6z" />
+    </S>
+  ),
+  hand: (p: P) => (
+    <S {...p}>
+      <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-.5a6 6 0 0 1-4.7-2.3L3.6 14.9a1.5 1.5 0 0 1 2.3-1.9L8 15" />
+    </S>
+  ),
+  rotate: (p: P) => (
+    <S {...p}>
+      <rect x="4" y="8" width="16" height="10" rx="1.5" />
+      <path d="M9 4h6l-2-2M15 4l-2 2" />
+    </S>
+  ),
+  columns: (p: P) => (
+    <S {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M12 4v16" />
+    </S>
+  ),
+  studio: (p: P) => (
+    <S {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M3 9h18M9 9v11" />
+      <path d="m13.5 13 4 1.6-1.7.6-.6 1.7z" />
+    </S>
+  ),
   expand: (p: P) => (
     <S {...p}>
       <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />

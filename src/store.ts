@@ -37,6 +37,8 @@ interface State {
   cars: boolean
   /** fullscreen preview of a site */
   stage: StageState | null
+  /** Studio, the visual site builder, open on this project */
+  studio: { projectId: string } | null
   select: (id: string | null) => void
   hover: (id: string | null) => void
   setPalette: (open: boolean) => void
@@ -49,6 +51,8 @@ interface State {
   setCars: (on: boolean) => void
   openStage: (s: StageState) => void
   closeStage: () => void
+  openStudio: (projectId: string) => void
+  closeStudio: () => void
 }
 
 function load<T extends string>(key: string, ok: (v: string) => boolean, fallback: T): T {
@@ -80,6 +84,7 @@ export const useApp = create<State>((set) => ({
   font: load<Font>('ard.font', (v) => FONTS.some((f) => f.id === v), 'blueprint'),
   cars: load<'on' | 'off'>('ard.cars', (v) => v === 'on' || v === 'off', 'on') === 'on',
   stage: null,
+  studio: null,
   select: (selectedId) => set({ selectedId }),
   hover: (hoveredId) => set({ hoveredId }),
   setPalette: (paletteOpen) => set({ paletteOpen }),
@@ -104,6 +109,8 @@ export const useApp = create<State>((set) => ({
   },
   openStage: (stage) => set({ stage }),
   closeStage: () => set({ stage: null }),
+  openStudio: (projectId) => set({ studio: { projectId }, stage: null }),
+  closeStudio: () => set({ studio: null }),
 }))
 
 export const prefersReducedMotion =

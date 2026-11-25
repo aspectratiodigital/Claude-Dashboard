@@ -98,7 +98,7 @@ export interface SceneCanvasProps extends Omit<CanvasProps, 'children' | 'dpr' |
 
 export function SceneCanvas({ children, effects, maxDpr = 2, alwaysSmooth = false, gl, onCreated, ...rest }: SceneCanvasProps) {
   const tier = useTier()
-  const staged = useApp((s) => !!s.stage)
+  const staged = useApp((s) => !!s.stage || !!s.studio)
   const idle = useIdle(20_000)
   const [drop, setDrop] = useState(0)
   useEffect(() => setDrop(0), [tier])
