@@ -203,34 +203,62 @@ Open a project and you get a large desktop preview and a phone preview side by s
 
 **Studio** is the visual site builder. Open it from a building's details (**Edit in Studio**) or the command palette (`Ctrl K`, then a site's name and "edit in Studio").
 
-- **Every website, from its latest commit.** Studio keeps its own copy of each site's repo in the app's data folder (`studio/`), separate from your working folders, and pulls the latest from the default branch each time you open a site or press the refresh button. The line under the toolbar says which commit you're looking at.
-- **How each site runs:** plain HTML sites (Aspect Ratio Digital, BAU Drinks) are served as they are. Sites built from data files (Kings Hill Dental, Optisoul, Diplomats of Sound) run their own build script first. Astro sites (Chai Wallahs, Grassroots Rising) install their packages the first time (a minute or two) and then run Astro's dev server, which Studio stops again after 20 minutes unused. Shopify themes (Babiators) open the live shop instead for now, and apps aren't listed.
-- **Screen sizes:** Mobile (390 × 844), Tablet (820 × 1180) and Laptop (1440 × 900), or **Custom**: type a width and height, or a ratio like `16:9` or `21:9` to set the height from the width. Turn any size sideways, zoom to fit or to 50, 75 or 100%, and put a second size beside the first to compare.
-- **Pages:** pick from every page Studio finds in the repo, type an address, or just click through the site in **Browse** mode.
-- **Edit** (`V`): click anything to select it. The side panel shows what it is and what you can do with it, Wix-style:
-  - **Text:** double-click (or **Edit text**) and type; Enter finishes, Esc cancels.
-  - **Move:** drag it. It **snaps** to line up its edges and centre with the elements around it and the page, with pink guides (the magnet button turns snapping off; hold `Alt` to drag freely). Arrow keys nudge 1px, `Shift` 10px. **Move earlier / later** reorders it among its neighbours, and **Reset position** puts it back.
-  - **Photos:** **Replace photo**, **Add photo after** and **Alt text**. Big photos are resized and turned into WebP automatically.
-  - **Buttons and links:** change the text, and where it **Links to**.
-  - **Duplicate**, **Hide at this size** (just this screen size) or **Remove**.
-  - Clicking a word in a heading selects the whole heading; hold `Alt` to select exactly what's under the pointer. `H` goes back to Browse.
-- **Undo and redo** (`Ctrl Z`, `Ctrl Shift Z`) for every edit, and a **Changes** tab listing them, where you can take any one back. Edits wait on the canvas (kept if you close Studio) until you save.
-- **Save** writes the edits into the site's real files, never the built HTML. Text, links and alt text whose old wording appears exactly once in the source are written straight in. Everything else (moves, reordering, photos, duplicates, hiding) goes to Claude Code, run in Studio's copy with file tools only (no commands, pushes or web), told how that site is built and to follow its CLAUDE.md. A dragged element becomes proper CSS at that screen size (margins, alignment, the site's own breakpoints), not a transform. Then the site rebuilds and the canvas reloads from the source, so what you see is what will ship.
-- **Claude** tab: ask for a change in words ("make this heading punchier", "add a third review card"). It knows the page, the screen size and the selected element, edits Studio's copy, and the canvas reloads.
-- **SEO** tab: the page on the canvas as Google and the social networks see it, with every detail marked with a green tick (sorted), an orange line (could improve) or a red cross (needs sorting):
-  - **On Google:** a preview of the search result, and the **Title** and **Description** to edit right there, with a character count that turns orange outside 30 to 60 (title) or 70 to 160 (description).
-  - **When shared:** a preview of the link card WhatsApp, Facebook and LinkedIn show, a **share image** to choose, and optionally different share words.
-  - **Checks:** title and description length and duplicates, the main heading and heading order, alt text (fill in the missing ones from a list, or have Claude write them all), photos over 300 KB, share tags, noindex, canonical link, viewport, language, favicon, amount of text, structured data, broken links to other pages, and the site's sitemap and robots.txt (read from the repo). Fixes that need code have an **Ask Claude** button that puts a ready-made request in the Claude tab.
-  - **Check every page** loads each page in the background (with your unsaved edits) and lists them worst first; click one to open it. It also spots titles and descriptions used on more than one page.
-  - Title, description, share image and alt text changes are edits like any other: undo, the Changes tab, then Save writes them into wherever the site sets them for that page.
-- **Review & push live** shows every saved change in plain words and the code diff (for sites built from data files, the source changes rather than the rebuilt pages), then:
-  - **Push live:** one commit to the default branch, with a descriptive message, and the site's own deploy takes it from there. If GitHub moved on meanwhile, your edits go on top.
-  - **Save as draft:** pushes a `studio/...` branch instead and links to open a pull request.
-  - **Discard all:** back to the latest commit.
+- **Every website, from its latest commit.** Studio keeps its own copy of each site's repo in the app's data folder (`studio/`), separate from your working folders, and pulls the latest from the default branch each time you open a site (or **Tools → Get the latest from GitHub**). The line under the toolbar says which commit you're looking at.
+- **How each site runs:** plain HTML sites (Aspect Ratio Digital, BAU Drinks) are served as they are. Sites built from data files (Kings Hill Dental, Optisoul, Diplomats of Sound) run their own build script first. Astro sites (Chai Wallahs, Grassroots Rising) install their packages the first time (a minute or two) and then run Astro's dev server, which Studio stops again after 20 minutes unused. Shopify themes (Babiators) open the live shop instead for now, and apps aren't listed. Opening a site again is quick: Studio keeps the last build and only rebuilds what changed.
 
-Pushing needs a GitHub token that can write (a signed-in GitHub CLI, or a read-and-write token in Settings). Photos over 2400px or 500 KB are resized and saved as WebP on the way in.
+### The toolbar
 
-Previews are served on `127.0.0.1` only, never your network, and only the site's own files (no `.git` or dotfiles). Studio uses the GitHub token from Settings to download private repos, passed to git through the environment so it's never written into the copy's `.git/config`.
+Site and page pickers, the address, then **screen sizes**: Mobile (390 × 844), Tablet (820 × 1180), Laptop (1440 × 900), Full width, or a size menu for **Custom** sizes and ratios like `16:9`, turning sideways, zoom, and a second size side by side. Then **Browse** (`H`, use the site normally) and **Edit** (`V`), undo and redo, and three menus:
+
+- **View:** snap to line up, a layout grid, rulers. Hold `Alt` over the page to measure from the selection to anything else.
+- **Tools:** find and replace (`Ctrl F`), preview on your phone, a screenshot for a client, open the preview in your browser, get the latest from GitHub, and **All sites**.
+- **Layers:** everything on the page as a folding list, to select what's hard to click (something underneath, or hidden at this size) and to **lock** parts so they can't be changed or moved by accident.
+
+### Element tab: what's selected
+
+Click anything to select it (`Shift` adds more; one set of changes then applies to all of them). The panel shows only what fits what you picked, in folding sections:
+
+- **Content:** double-click text to edit it with **bold**, *italic* and links (`Ctrl B`, `Ctrl I`, `Ctrl K`) and UK English spell check; **Edit everywhere** changes the same words on every page. Buttons get their words, where they go, a new-tab switch and a **Style** dropdown of the site's own button styles. Lists, FAQs and cards get add, duplicate, move and remove for their items; tables get rows and columns; forms get their fields and the thank-you message.
+- **Photo / Video / Background:** replace from your computer (or drop a file straight onto the page), from **the site's own photos** (files already in the repo, so they add nothing to its size), or from **free stock photos** (Openverse, plus Unsplash and Pexels with keys in Settings). **Crop and adjust** (ratios, straighten, brightness, contrast, warmth), a **focal point** for cropped photos, alt text (or **Write it from the photo**, where Claude looks at it), SVG logos and icons that can match the colour around them, video files and YouTube, Vimeo or Maps embeds, galleries and carousels.
+- **Design:** **Applies to** picks every screen size or just this one (the site's own breakpoints, with a badge on each change that's limited to some sizes). Text size and weight, alignment, the site's brand colours as swatches (plus any colour), spacing from the site's own scale, columns (2, 3 or 4), and an animation switch.
+- **Arrange:** move earlier or later, duplicate, copy and paste (also to another page: `Ctrl C`, `Ctrl V`), hide at this size, remove. Drag to move, snapping to its neighbours; arrow keys nudge.
+- **Details:** what it is, its place on the page, and lock.
+
+### Site tab: the whole site
+
+- **Theme:** the site's design tokens (CSS custom properties: colours, fonts, sizes), changed once for every page.
+- **Content:** the site's copy and data files (JSON, YAML, Markdown front matter) as forms, so a price list or a team bio is a form field, not a hunt through the page.
+- **Photos:** every photo in the repo with where it's used, a detail view, and the **unused** ones to delete in one go.
+- **Find:** search this page or every page, and replace (capitals follow each match unless **Match case** is on).
+
+### Checks tab
+
+- **SEO:** the Google result and share card previews, title, description and share image to edit, a **target phrase** checked against the page, a **share image maker**, and the page's checks (headings, alt text, photo sizes, links, structured data, sitemap and robots.txt). **Check every page** runs them across the site.
+- **Access:** an axe accessibility check (WCAG 2.2 AA) of the page with your edits, each problem with **Show where** and **Ask Claude to fix**.
+- **Speed:** PageSpeed Insights for the live page, phone and computer (a free Google key in Settings avoids its rate limit).
+- **Local:** the business name, phone and address checked across every page and against the structured data.
+- **Traffic:** Search Console (searches, clicks, positions) and GA4 (visitors, top pages), once a Google service account is added in Settings.
+- The **weekly check** (under SEO) checks every live site once a week and says what slipped since the last one.
+
+### Publish tab
+
+- **Your edits:** every change waiting on the canvas in plain words, with the screen sizes it applies to (and **Every size** to widen one). Click one to see it. **Save** writes them into the site's real files, never the built HTML: simple text, links and alt text go straight in, and everything else goes to Claude Code, run in Studio's copy with file tools only, told how that site is built and to follow its CLAUDE.md.
+- **Go live:** **Review & push live** opens the review: the changes and the code diff, **before and after** screenshots of each changed page (phone or laptop), and **checks before going live** (nothing secret or placeholder text in the changes, file sizes, every changed page opens, its search details, and its links). Then **Push live** (one commit to the default branch), **Save as draft** (a `studio/...` branch and a pull request link), **Later** (book a time; it runs while Blueprint is open, or as soon as it next opens), or **Discard all**.
+- **Deploy status:** the GitHub checks and deploys for the latest commit, and for Krystal-hosted sites, **Deploy on Krystal** through cPanel's Git deploy (connect the cPanel once here).
+- **Share:** the live and preview addresses, the phone preview and client screenshots.
+- **History:** every commit, newest first, Studio's own marked. **Undo just this change** or **Go back to this version** makes a saved change you review and push live like any other.
+
+### Sharing
+
+- **Preview on your phone:** a QR code for the canvas with your edits, on your Wi-Fi, following you as you edit. Only a phone with the code can open it, and it switches itself off after 30 minutes unused. Windows may ask to allow Blueprint through the firewall on private networks.
+- **Screenshot for a client:** phone, tablet, laptop or the canvas size, in a device or browser frame on grey, white, dark or see-through, sharp (2×) and optionally the whole page. Copy or download it.
+- **All sites:** every website at a glance: up and how quick, SEO and speed scores, the weekly check, edits waiting or booked, the last change and deploy.
+
+Undo and redo (`Ctrl Z`, `Ctrl Shift Z`) cover every edit, and edits wait on the canvas (kept if you close Studio) until you save. Pushing needs a GitHub token that can write (a signed-in GitHub CLI, or a read-and-write token in Settings). Photos are resized and saved as WebP on the way in for plain sites; sites with their own image script or Astro get the original, and their own pipeline makes the web sizes.
+
+**Keys, kept on this computer** (Settings → Studio, never sent to the page): Unsplash and Pexels for stock photos, a Google service account (JSON key) for Search Console and GA4, a PageSpeed key, and each Krystal site's cPanel token (Publish → Deploy status).
+
+Previews are served on `127.0.0.1` only (the phone preview is the one exception, and needs its code), and only the site's own files (no `.git` or dotfiles). Studio uses the GitHub token from Settings to download private repos, passed to git through the environment so it's never written into the copy's `.git/config`.
 
 ## Notifications
 
@@ -247,6 +275,10 @@ The kinds: build started, passed or failed; deploying, deployed or deploy failed
 | `Esc` | Close the fullscreen preview, then the open project |
 | `V` `H` | Studio: Edit or Browse |
 | `Ctrl Z` `Ctrl Shift Z` | Studio: undo, redo |
+| `Ctrl F` | Studio: find and replace |
+| `Ctrl C` `Ctrl V` `Ctrl D` | Studio: copy, paste (also on another page), duplicate |
+| `Delete` | Studio: remove what's selected |
+| `Alt` | Studio: measure from the selection, or drag freely |
 | `F` | Frame-rate meter |
 | `Enter` | Open up the selected building |
 | `Q` `E` | Rotate the plan |
