@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { AppFloor, AppGallery, AppImage, AppItem, AppMap } from '../src/data/types.ts'
+import type { AppFloor, AppGallery, AppImage, AppItem, AppMap, AppSkin } from '../src/data/types.ts'
 import type { GitHub, RepoInfo } from './github.ts'
 import { DATA_DIR, log, now, prettyName } from './util.ts'
 
@@ -14,8 +14,13 @@ import { DATA_DIR, log, now, prettyName } from './util.ts'
 //   skins / themes.ts                     { id, name, blurb } entries: app skins
 //   packs / decks.ts                      { id, name } entries: card skins, matched to images by name
 //
-// When the web build takes ?skin= (and ?game=) links, each skin is shown as a
-// screenshot of the live app, on the home floor and on every game's floor.
+// Each floor carries the link that opens it in the web build (?game=<id> when
+// the build reads one), so the dashboard can show that page live in a phone
+// frame you can tap through. When the build takes ?skin= the preview gets a
+// skin picker instead of a picture of every skin.
+
+/** Bump when the map's shape changes, so saved maps are read again. */
+export const APP_MAP_VERSION = 2
 
 const IMG = /\.(png|jpe?g|webp|gif|svg)$/i
 const SKIP = /(^|\/)(node_modules|dist|build|web-build|\.expo|android|ios|coverage|\.git)\//
@@ -144,7 +149,7 @@ export async function loadAppMap(gh: GitHub, repo: RepoInfo, paths: string[], sh
   const manifest = paths.find((p) => /(^|\/)blueprint\.app\.json$/.test(p) && !SKIP.test(p))
   if (manifest) {
     try {
-      const j = JSON.parse(await text(gh, repo, sha, manifest)) as { floors?: AppFloor[] }
+      const j = JSON.parse(await text(gh, repo, sha, manifest)) as { floors?: AppFloor[]; skins?: { param?: string; items?: AppSkin[] } }
       const known = new Set(paths)
       const dir = dirOf(manifest)
       const fix = (img: AppImage): AppImage => ({ ...img, path: known.has(img.path) ? img.path : join(dir, img.path) })
@@ -152,9 +157,12 @@ export async function loadAppMap(gh: GitHub, repo: RepoInfo, paths: string[], sh
         id: String(f.id ?? i),
         name: String(f.name ?? `Floor ${i + 1}`),
         note: f.note,
+        link: typeof f.link === 'string' ? f.link.replace(/^\?/, '') : i === 0 ? '' : undefined,
         galleries: (f.galleries ?? []).map((g, k) => ({ id: String(g.id ?? k), name: String(g.name ?? ''), note: g.note, items: (g.items ?? []).map((it, m) => ({ ...it, id: String(it.id ?? m), name: String(it.name ?? ''), images: (it.images ?? []).map(fix) })) })),
       }))
-      if (floors.length) return { sha, root: at, source: 'manifest', floors, checked: now() }
+      const skinItems = (j.skins?.items ?? []).map((x) => ({ id: String(x.id), name: String(x.name ?? x.id), note: x.note, swatch: x.swatch }))
+      const skins = skinItems.length ? { param: j.skins?.param ?? null, items: skinItems } : undefined
+      if (floors.length) return { sha, root: at, source: 'manifest', version: APP_MAP_VERSION, skins, floors, checked: now() }
     } catch (e) {
       log('app map', repo.full, 'bad blueprint.app.json', (e as Error).message)
     }
@@ -179,14 +187,6 @@ export async function loadAppMap(gh: GitHub, repo: RepoInfo, paths: string[], sh
   const q = (o: Record<string, string>) => new URLSearchParams(o).toString()
 
   const home: AppGallery[] = []
-  if (skins.length) {
-    home.push({
-      id: 'skins',
-      name: `App skins (${skins.length})`,
-      note: skinParam ? 'The home screen in each skin, from the live app.' : 'Add a ?skin= link to the web build to see each one here.',
-      items: skins.map((s) => ({ id: s.id, name: s.name, note: s.note, images: [], shot: skinParam ? q({ [skinParam]: s.id }) : undefined })),
-    })
-  }
 
   // card skins: each pack's back (cut from the backs sheet) and its sheet of faces
   const packs = entriesOf(packsSrc)
@@ -231,27 +231,21 @@ export async function loadAppMap(gh: GitHub, repo: RepoInfo, paths: string[], sh
   }
   if (other.length) home.push({ id: 'assets', name: `Other images (${other.length})`, note: 'Textures, labels and icons in the app’s assets folder.', items: other.slice(0, 80) })
 
-  const floors: AppFloor[] = [{ id: 'home', name: 'Home', note: 'The app’s home screen, with every skin and card design.', galleries: home }]
+  const floors: AppFloor[] = [{ id: 'home', name: 'Home', note: 'The app’s home screen, with its card designs and images.', link: '', galleries: home }]
   if (games.length) {
     for (const g of games) {
       const galleries: AppGallery[] = []
-      if (gameParam) {
-        galleries.push(
-          skins.length && skinParam
-            ? { id: 'skins', name: 'In each skin', note: `${g.name} opened from a link, in every app skin.`, items: skins.map((s) => ({ id: s.id, name: s.name, images: [], shot: q({ [gameParam]: g.id, [skinParam]: s.id }) })) }
-            : { id: 'screen', name: 'Screen', items: [{ id: g.id, name: g.name, images: [], shot: q({ [gameParam]: g.id }) }] },
-        )
-      }
       const own = images.filter((p) => stem(p).toLowerCase().includes(g.id.toLowerCase()))
       if (own.length) galleries.push({ id: 'images', name: 'Images', items: own.map((p) => ({ id: p, name: prettyName(stem(p)), images: [{ path: p }] })) })
-      floors.push({ id: g.id, name: g.name, note: g.note, galleries })
+      floors.push({ id: g.id, name: g.name, note: g.note, link: gameParam ? q({ [gameParam]: g.id }) : undefined, galleries })
     }
   } else {
     // no list of modes: one floor per screen file
     const screens = code.filter((p) => /Screen\.(t|j)sx?$/.test(baseOf(p)) && !/^Home/i.test(baseOf(p)))
     for (const s of screens.slice(0, 40)) floors.push({ id: stem(s), name: prettyName(stem(s).replace(/Screen$/, '').replace(/([a-z])([A-Z])/g, '$1 $2')), galleries: [] })
   }
-  return { sha, root: at, source: 'code', floors, checked: now() }
+  const skinList = skins.length ? { param: skinParam, items: skins.map((s) => ({ id: s.id, name: s.name, note: s.note, swatch: s.swatch })) } : undefined
+  return { sha, root: at, source: 'code', version: APP_MAP_VERSION, skins: skinList, floors, checked: now() }
 }
 
 /** Every image path a map shows, so the asset route only serves those. */

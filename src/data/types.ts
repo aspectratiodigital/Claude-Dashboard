@@ -254,7 +254,7 @@ export interface AppImage {
   crop?: { cols: number; rows: number; index: number }
 }
 
-/** One option on a floor: a skin, a card design, an image. `shot` is a query for the app's web build to screenshot. */
+/** One option on a floor: a skin, a card design, an image. `shot` is a query that opens it in the app's web build (the floor's live preview jumps there). */
 export interface AppItem {
   id: string
   name: string
@@ -276,7 +276,17 @@ export interface AppFloor {
   id: string
   name: string
   note?: string
+  /** the query that opens this floor in the app's web build ('' for the home screen); missing when the build has no link for it */
+  link?: string
   galleries: AppGallery[]
+}
+
+/** An app skin the live preview can switch to. */
+export interface AppSkin {
+  id: string
+  name: string
+  note?: string
+  swatch?: string
 }
 
 /** An app's floors and what's on them, read from its code (or its blueprint.app.json). */
@@ -286,6 +296,10 @@ export interface AppMap {
   /** the app's folder in the repo ('' for the root) */
   root: string
   source: 'manifest' | 'code'
+  /** how the map was built; an older one is read again */
+  version?: number
+  /** the app's skins, and the query parameter that picks one (null when the web build has none) */
+  skins?: { param: string | null; items: AppSkin[] }
   floors: AppFloor[]
   checked: string
 }

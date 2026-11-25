@@ -2,7 +2,7 @@
 // In dev it loads the Vite server (VITE_DEV_SERVER_URL). Otherwise it starts the
 // bundled local API and file server (dist-electron/server.mjs) and loads that,
 // so the installed app shows your live projects with nothing else running.
-const { app, BrowserWindow, shell, dialog, nativeTheme } = require('electron')
+const { app, BrowserWindow, shell, dialog, nativeTheme, session } = require('electron')
 const path = require('path')
 const { pathToFileURL } = require('url')
 const { startUpdater } = require('./updater.cjs')
@@ -20,27 +20,27 @@ if (!app.requestSingleInstanceLock()) app.quit()
 // lets Windows show the app's notifications (update progress) under its own name
 if (process.platform === 'win32') app.setAppUserModelId('digital.aspectratio.blueprint')
 
-// Screenshots of an app's live web build for its floors (server/shots.ts): a hidden phone-sized window,
-// given a few seconds to draw its 3D scenes.
-globalThis.blueprintCapture = async (url, { width, height }) => {
-  const w = new BrowserWindow({
-    show: false,
-    width,
-    height,
-    useContentSize: true,
-    webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+// Live previews (an app's floors, a site's phone and desktop frames) show your sites inside the
+// dashboard. Many sites send X-Frame-Options or a CSP frame-ancestors rule that would leave those
+// frames blank, so they're dropped from pages loaded *as frames in this window*. Top-level pages and
+// everything else keep their headers. server/frames.ts reads the flag so it doesn't warn about them.
+globalThis.blueprintFramesAllowed = true
+function allowFraming() {
+  session.defaultSession.webRequest.onHeadersReceived({ urls: ['http://*/*', 'https://*/*'] }, (d, done) => {
+    if (d.resourceType !== 'subFrame' || !d.responseHeaders) return done({})
+    const headers = {}
+    for (const [k, v] of Object.entries(d.responseHeaders)) {
+      const n = k.toLowerCase()
+      if (n === 'x-frame-options') continue
+      if (n === 'content-security-policy') {
+        const kept = v.map((p) => p.split(';').filter((x) => !/^\s*frame-ancestors\b/i.test(x)).join(';')).filter((p) => p.trim())
+        if (kept.length) headers[k] = kept
+        continue
+      }
+      headers[k] = v
+    }
+    done({ responseHeaders: headers })
   })
-  try {
-    w.webContents.setAudioMuted(true)
-    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    await w.loadURL(url)
-    await new Promise((r) => setTimeout(r, 4000))
-    const img = await w.webContents.capturePage()
-    if (img.isEmpty()) throw new Error('The page drew nothing')
-    return img.toJPEG(82)
-  } finally {
-    w.destroy()
-  }
 }
 
 async function startServer() {
@@ -99,6 +99,7 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(async () => {
+  allowFraming()
   let url = process.env.VITE_DEV_SERVER_URL
   if (!url) {
     try {
