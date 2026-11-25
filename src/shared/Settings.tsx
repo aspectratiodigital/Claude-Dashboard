@@ -4,6 +4,7 @@ import { FONTS, useApp, type Quality, type Theme } from '../store'
 import { detectTier, resolveTier, TIERS } from './quality'
 import { Icon } from './icons'
 import { syncNow } from './claude'
+import type { Connections } from '../data/studio-api'
 
 // Settings: connect GitHub, per-project URLs and ports, theme, font, rendering quality.
 // Secrets go to the local API, which keeps them in .jarvis/settings.json on
@@ -339,8 +340,97 @@ export function Settings() {
               </div>
             </section>
           )}
+
+          {api && <StudioConnections flash={flash} />}
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Studio's connections: stock photo keys, and the Google service account behind
+ * Search Console and Analytics. Kept on this computer; the browser only learns
+ * whether each is set. Each site's own Google ids and Krystal cPanel are set in
+ * Studio itself (Checks → Traffic, and Publish → Deploy status).
+ */
+function StudioConnections({ flash }: { flash: (m: string) => void }) {
+  const [conn, setConn] = useState<Connections | null>(null)
+  const [unsplash, setUnsplash] = useState('')
+  const [pexels, setPexels] = useState('')
+  const [google, setGoogle] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    fetch('./api/studio/connections')
+      .then((r) => r.json())
+      .then(setConn)
+      .catch(() => {})
+  }, [])
+  const save = async (patch: Record<string, unknown>, ok: string) => {
+    setError(null)
+    try {
+      const r = await fetch('./api/studio/connections', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? 'Could not save')
+      setConn((c) => ({ ...c, ...d }))
+      flash(ok)
+      return true
+    } catch (e) {
+      setError((e as Error).message)
+      return false
+    }
+  }
+  if (!conn) return null
+  return (
+    <section>
+      <h3>
+        <Icon.studio size={16} /> Studio
+      </h3>
+      <p className="settings-note">Stock photos come from Openverse with no key. Free keys add Unsplash and Pexels to the photo search.</p>
+      <div className="settings-row">
+        <input type="password" value={unsplash} onChange={(e) => setUnsplash(e.target.value)} placeholder={conn.unsplash ? 'Unsplash key saved' : 'Unsplash access key (optional)'} aria-label="Unsplash access key" autoComplete="off" />
+        <button className="settings-btn" disabled={!unsplash.trim()} onClick={async () => (await save({ unsplashKey: unsplash }, 'Unsplash key saved')) && setUnsplash('')}>
+          Save
+        </button>
+        {conn.unsplash && (
+          <button className="settings-btn ghost" onClick={() => save({ unsplashKey: '' }, 'Unsplash key removed')}>
+            Remove
+          </button>
+        )}
+      </div>
+      <div className="settings-row">
+        <input type="password" value={pexels} onChange={(e) => setPexels(e.target.value)} placeholder={conn.pexels ? 'Pexels key saved' : 'Pexels API key (optional)'} aria-label="Pexels API key" autoComplete="off" />
+        <button className="settings-btn" disabled={!pexels.trim()} onClick={async () => (await save({ pexelsKey: pexels }, 'Pexels key saved')) && setPexels('')}>
+          Save
+        </button>
+        {conn.pexels && (
+          <button className="settings-btn ghost" onClick={() => save({ pexelsKey: '' }, 'Pexels key removed')}>
+            Remove
+          </button>
+        )}
+      </div>
+      <p className="settings-note">
+        Search Console and Analytics in Studio’s Checks tab use a Google Cloud service account. Make one with a JSON key, turn on the Search Console API, Analytics Data API and Analytics Admin API, then add its email as a user in each site’s Search Console and Analytics.
+      </p>
+      {conn.google ? (
+        <div className="settings-row">
+          <p className="settings-status" data-ok>
+            Connected as {conn.google}
+          </p>
+          <button className="settings-btn ghost" onClick={() => save({ google: null }, 'Google disconnected')}>
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <div className="settings-row settings-row-top">
+          <textarea value={google} onChange={(e) => setGoogle(e.target.value)} rows={3} placeholder="Paste the service account key file ({ … })" aria-label="Google service account key" spellCheck={false} />
+          <button className="settings-btn" disabled={!google.trim()} onClick={async () => (await save({ google }, 'Google connected')) && setGoogle('')}>
+            Connect
+          </button>
+        </div>
+      )}
+      {error && <p className="settings-error">{error}</p>}
+      <p className="settings-note">Each site’s Krystal cPanel connects in Studio under Publish → Deploy status.</p>
+    </section>
   )
 }

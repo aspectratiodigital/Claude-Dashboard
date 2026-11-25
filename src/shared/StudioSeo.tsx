@@ -61,6 +61,7 @@ export function SeoPanel({
   onStopCrawl,
   onGo,
   onRefresh,
+  children,
 }: {
   report: SeoReport | null
   site: StudioSite
@@ -78,6 +79,8 @@ export function SeoPanel({
   onStopCrawl: () => void
   onGo: (path: string) => void
   onRefresh: () => void
+  /** more sections after the whole-site check */
+  children?: React.ReactNode
 }) {
   const others = useMemo(() => (crawl ? (Object.values(crawl.reports).filter(Boolean) as SeoReport[]) : []), [crawl])
   const page = useMemo(() => (report ? { ...report, site: site.seo ?? report.site } : null), [report, site.seo])
@@ -251,6 +254,7 @@ export function SeoPanel({
       </section>
 
       <SiteSection crawl={crawl} pages={site.pages.length} seoSite={site.seo} current={page.path} onCrawl={onCrawl} onStop={onStopCrawl} onGo={onGo} />
+      {children}
     </div>
   )
 }
