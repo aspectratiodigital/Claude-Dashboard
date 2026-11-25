@@ -346,6 +346,23 @@ export function replaceHits(hits: Hit[], text: (h: Hit) => string): string[] {
   return [...byFile.keys()]
 }
 
+/**
+ * With Match case off, the new words follow the case of each match: all small
+ * mid-sentence, all capitals in a shouting heading, a capital first letter at
+ * the start of a sentence. Acronyms (NHS, GP) keep their capitals.
+ * (The canvas does the same in studio-overlay.ts fitCase.)
+ */
+export function fitCase(match: string, replacement: string): string {
+  const letters = (t: string) => t.replace(/[^\p{L}]/gu, '')
+  const m = letters(match.replace(/<[^>]*>|&[#\w]+;/g, ' '))
+  if (!m || !letters(replacement)) return replacement
+  if (m.length > 1 && m === m.toUpperCase() && m !== m.toLowerCase()) return replacement.toUpperCase()
+  if (m === m.toLowerCase() && m !== m.toUpperCase()) return replacement.replace(/\p{L}+/gu, (w) => (w.length > 1 && w === w.toUpperCase() ? w : w.toLowerCase()))
+  const first = m[0]
+  if (first === first.toUpperCase()) return replacement.replace(/\p{L}/u, (c) => c.toUpperCase())
+  return replacement
+}
+
 /** a find-and-replace pattern from what you typed */
 export function findPattern(find: string, matchCase: boolean, wholeWord: boolean) {
   return textPattern(find, matchCase ? 'g' : 'gi', wholeWord)
@@ -415,16 +432,16 @@ export async function searchPages(port: number, pages: string[], find: string, m
         const matches = [...text.matchAll(re)]
         if (!matches.length) continue
         const title = decodeEntities(html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? '')
-        out.push({
-          path: p,
-          title,
-          count: matches.length,
-          snippets: matches.slice(0, 3).map((m) => {
-            const s = Math.max(0, m.index! - 50)
-            const e = Math.min(text.length, m.index! + m[0].length + 50)
-            return `${s > 0 ? '…' : ''}${text.slice(s, e)}${e < text.length ? '…' : ''}`
-          }),
-        })
+        const around = (t: string, m: RegExpMatchArray) => {
+          const s = Math.max(0, m.index! - 50)
+          const e = Math.min(t.length, m.index! + m[0].length + 50)
+          return `${s > 0 ? '…' : ''}${t.slice(s, e).trim()}${e < t.length ? '…' : ''}`
+        }
+        // the page's own words first: the menu and footer say the same on every page
+        const main = html.match(/<main\b[^>]*>([\s\S]*)<\/main>/i)?.[1]
+        const mainText = main ? visibleText(`<body>${main}</body>`) : ''
+        const snippets = [...new Set([...[...mainText.matchAll(re)].map((m) => around(mainText, m)), ...matches.map((m) => around(text, m))])].slice(0, 3)
+        out.push({ path: p, title, count: matches.length, snippets })
       }
     }),
   )

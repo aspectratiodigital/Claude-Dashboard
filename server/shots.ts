@@ -98,14 +98,31 @@ async function launch(): Promise<Browser> {
   throw new Error(`No browser to take screenshots with (install Edge or Chrome). ${last?.message.split('\n')[0] ?? ''}`)
 }
 
+/**
+ * Is something laid over the whole screen, like a splash or intro? Screenshots
+ * wait for it to go. (They're taken asking for reduced motion, which skips most
+ * intros and shows reveal-on-scroll sections straight away; this catches the rest.)
+ */
+export const COVERED = `(() => {
+  const W = innerWidth, H = innerHeight
+  for (const el of document.body ? document.body.querySelectorAll('*') : []) {
+    const cs = getComputedStyle(el)
+    if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.1 || !(Number(cs.zIndex) >= 100)) continue
+    const r = el.getBoundingClientRect()
+    if (r.width >= W * 0.9 && r.height >= H * 0.9 && r.left <= W * 0.05 && r.top <= H * 0.05) return true
+  }
+  return false
+})()`
+
 async function browserShot(url: string, o: ShotOptions): Promise<Buffer> {
   const b = await open()
-  const page = await b.newPage({ viewport: { width: o.width, height: o.height }, deviceScaleFactor: o.scale ?? 1, isMobile: !!o.mobile, hasTouch: !!o.mobile })
+  const page = await b.newPage({ viewport: { width: o.width, height: o.height }, deviceScaleFactor: o.scale ?? 1, isMobile: !!o.mobile, hasTouch: !!o.mobile, reducedMotion: 'reduce' })
   try {
     await page.goto(url, { waitUntil: 'load', timeout: 60_000 })
     // the page's edits are in once Studio's script says so; then let fonts and reveals settle
     await page.waitForFunction('!window.__studioOps || window.__studioReady', null, { timeout: 15_000 }).catch(() => {})
     await page.evaluate('document.fonts && document.fonts.ready').catch(() => {})
+    await page.waitForFunction(`!${COVERED}`, null, { timeout: 6_000, polling: 250 }).catch(() => {})
     if (o.full) await scrollThrough(page)
     await page.waitForTimeout(1200)
     return await page.screenshot({ type: o.type ?? 'png', fullPage: !!o.full, ...(o.type === 'jpeg' ? { quality: 85 } : {}) })

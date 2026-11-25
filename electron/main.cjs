@@ -46,6 +46,18 @@ globalThis.blueprintCapture = async (url, { width, height }) => {
 // Studio's screenshots (server/shots.ts pageShot): any size, sharp (2x) for sending to clients, and the
 // whole page when asked. Chromium's own screenshot command (through the debugger) can capture past the
 // bottom of the window, which capturePage can't.
+// keep in step with COVERED in server/shots.ts
+const COVERED = `(() => {
+  const W = innerWidth, H = innerHeight
+  for (const el of document.body ? document.body.querySelectorAll('*') : []) {
+    const cs = getComputedStyle(el)
+    if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.1 || !(Number(cs.zIndex) >= 100)) continue
+    const r = el.getBoundingClientRect()
+    if (r.width >= W * 0.9 && r.height >= H * 0.9 && r.left <= W * 0.05 && r.top <= H * 0.05) return true
+  }
+  return false
+})()`
+
 globalThis.blueprintShot = async (url, { width, height, full, scale = 1, type = 'png', mobile = false }) => {
   const w = new BrowserWindow({
     show: false,
@@ -61,11 +73,15 @@ globalThis.blueprintShot = async (url, { width, height, full, scale = 1, type = 
     dbg.attach('1.3')
     await dbg.sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: scale, mobile })
     if (mobile) await dbg.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true }).catch(() => {})
+    // reduced motion skips most intros and shows reveal-on-scroll sections straight away
+    await dbg.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }).catch(() => {})
     await w.loadURL(url)
     const js = (code) => w.webContents.executeJavaScript(code, true).catch(() => null)
     // Studio's script sets __studioReady once the page's edits are in
     for (let i = 0; i < 60 && !(await js('!window.__studioOps || !!window.__studioReady')); i++) await new Promise((r) => setTimeout(r, 250))
     await js('document.fonts ? document.fonts.ready.then(() => true) : true')
+    // a splash or intro laid over the whole screen: wait for it to go (as server/shots.ts COVERED)
+    for (let i = 0; i < 24 && (await js(COVERED)); i++) await new Promise((r) => setTimeout(r, 250))
     if (full) {
       // scroll through so photos that load late and reveal-on-scroll sections show
       await js(`(async () => {

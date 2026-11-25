@@ -26,6 +26,9 @@ export interface HistoryCommit {
 
 const deepened = new Map<string, string>()
 
+/** a commit title cut to a length at a word, marked with an ellipsis */
+const short = (t: string, n: number) => (t.length <= n ? t : `${t.slice(0, n).replace(/\s+\S*$/, '').replace(/[\s,.:;–-]+$/, '')}…`)
+
 /** the branch's last commits (Studio's copy only holds the latest, so it fetches more history once per commit) */
 export async function history(r: Runtime, token: string | null): Promise<HistoryCommit[]> {
   const head = r.site.sha ?? ''
@@ -74,10 +77,10 @@ export function rollBack(p: Project, sha: string, mode: 'one' | 'back-to') {
     await run('git', ['reset', '-q'], r.folder)
     await rebuild(r)
     const when = new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-    const note = mode === 'one' ? `Undo “${title.slice(0, 60)}” (${sha.slice(0, 7)})` : `Go back to the version from ${when} (“${title.slice(0, 50)}”)`
+    const note = mode === 'one' ? `Undo “${short(title, 60)}” (${sha.slice(0, 7)})` : `Go back to the version from ${when} (“${short(title, 50)}”)`
     await record(r, [note], ['/'])
     if (!studioEdits(r.folder).files.length) return { kind: 'revert', ok: true, text: 'Nothing to change: the site already matches that version.', at }
-    return { kind: 'revert', ok: true, text: `${note}. It’s waiting with your saved edits: check it on the canvas, then push live.`, at }
+    return { kind: 'revert', ok: true, text: `${note}. It’s saved, not live yet: check it on the canvas, then push live.`, at }
   })
 }
 

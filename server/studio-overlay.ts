@@ -91,6 +91,7 @@ function overlay() {
   const css = document.createElement('style')
   css.setAttribute('data-studio-ui', '')
   css.textContent = `
+    astro-dev-toolbar{display:none!important}
     [data-studio-box]{position:fixed;pointer-events:none;z-index:2147483646;box-sizing:border-box;border-radius:2px;display:none}
     [data-studio-box=hover]{outline:1.5px dashed #2f7dff;background:rgba(47,125,255,.06)}
     [data-studio-box=selected]{outline:2px solid #2f7dff}
@@ -142,7 +143,8 @@ function overlay() {
   rulerLeft.setAttribute('data-studio-ruler', 'left')
   document.documentElement.append(rulerTop, rulerLeft)
   const selBoxes: HTMLElement[] = []
-  const ours = (el: Element | null) => !!el && (el.hasAttribute('data-studio-box') || el.hasAttribute('data-studio-tag') || el.hasAttribute('data-studio-bar') || el.hasAttribute('data-studio-grid') || el.hasAttribute('data-studio-ruler') || el.hasAttribute('data-studio-ui') || !!el.closest('[data-studio-bar]'))
+  // Studio's own drawing, and the dev server's toolbar (Astro's), which isn't part of the site
+  const ours = (el: Element | null) => !!el && (el.localName === 'astro-dev-toolbar' || el.hasAttribute('data-studio-box') || el.hasAttribute('data-studio-tag') || el.hasAttribute('data-studio-bar') || el.hasAttribute('data-studio-grid') || el.hasAttribute('data-studio-ruler') || el.hasAttribute('data-studio-ui') || !!el.closest('[data-studio-bar]'))
 
   function place(el: Element | null, b: HTMLElement, label?: boolean) {
     if (!el || !el.isConnected) {
@@ -235,7 +237,31 @@ function overlay() {
   }
 
   const squash = (s: string) => s.replace(/\s+/g, ' ').trim()
-  const textOf = (el: Element) => squash(el.textContent ?? '')
+  // The words as written in the source, not as shown: CSS (upper case, say) is
+  // left out, and a line break or a part laid out on its own line counts as a
+  // space, so “TO<br>ANY” or two block spans read as two words, not “TOANY”.
+  const textOf = (el: Element) => {
+    if (!el.firstElementChild) return squash(el.textContent ?? '')
+    if (el.getElementsByTagName('*').length > 400) {
+      if (!el.querySelector('br')) return squash(el.textContent ?? '')
+      const c = el.cloneNode(true) as Element
+      c.querySelectorAll('br').forEach((b) => b.replaceWith(' '))
+      return squash(c.textContent ?? '')
+    }
+    let out = ''
+    const walk = (n: Node) => {
+      if (n.nodeType === 3) out += n.nodeValue
+      if (n.nodeType !== 1) return
+      const e = n as Element
+      if (e.tagName === 'BR') return void (out += ' ')
+      const own = e !== el && !/^(inline|contents|none)/.test(getComputedStyle(e).display)
+      if (own) out += ' '
+      for (const c of e.childNodes) walk(c)
+      if (own) out += ' '
+    }
+    walk(el)
+    return squash(out)
+  }
   const imgOf = (el: Element) => (el.matches('img') ? (el as HTMLImageElement) : el.querySelector('img'))
 
   function isLocked(el: Element) {
@@ -566,6 +592,18 @@ function overlay() {
   }
 
   /** text across the page: whole elements that read exactly `find`, then words inside longer text */
+  // as fitCase in studio-source.ts: with Match case off, the new words follow each match's case
+  function fitCase(match: string, replacement: string): string {
+    const letters = (t: string) => t.replace(/[^\p{L}]/gu, '')
+    const m = letters(match)
+    if (!m || !letters(replacement)) return replacement
+    if (m.length > 1 && m === m.toUpperCase() && m !== m.toLowerCase()) return replacement.toUpperCase()
+    if (m === m.toLowerCase() && m !== m.toUpperCase()) return replacement.replace(/\p{L}+/gu, (w) => (w.length > 1 && w === w.toUpperCase() ? w : w.toLowerCase()))
+    const first = m[0]
+    if (first === first.toUpperCase()) return replacement.replace(/\p{L}/u, (c) => c.toUpperCase())
+    return replacement
+  }
+
   function replaceText(id: string, find: string, replace: string | null, html: string | undefined, flags: { matchCase: boolean; wholeWord: boolean; exactBlocks: boolean }) {
     const undo: (() => void)[] = []
     if (!find) return false
@@ -590,7 +628,8 @@ function overlay() {
       re.lastIndex = 0
       if (!re.test(was)) continue
       re.lastIndex = 0
-      n.textContent = was.replace(re, replace ?? '')
+      // a function, so a $ in the new words is just a $
+      n.textContent = was.replace(re, (m) => (flags.matchCase ? (replace ?? '') : fitCase(m, replace ?? '')))
       undo.push(() => (n.textContent = was))
     }
     if (!undo.length) return false
@@ -921,7 +960,7 @@ function overlay() {
       bar.style.display = 'none'
       editing = null
       const afterHtml = cleanInline(el)
-      const after = squash(el.innerText ?? '')
+      const after = textOf(el)
       el.innerHTML = original
       if (keep && after && (after !== before || afterHtml !== beforeHtml)) {
         const styled = hasTags(afterHtml) || hasTags(beforeHtml)
@@ -1791,7 +1830,7 @@ function overlay() {
       })
     }
     const r = await win.axe!.run(
-      { exclude: [['[data-studio-box]'], ['[data-studio-tag]'], ['[data-studio-bar]'], ['[data-studio-grid]'], ['[data-studio-ruler]']] },
+      { exclude: [['[data-studio-box]'], ['[data-studio-tag]'], ['[data-studio-bar]'], ['[data-studio-grid]'], ['[data-studio-ruler]'], ['astro-dev-toolbar']] },
       { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'] } },
     )
     return r.violations.map((v) => ({
@@ -1852,7 +1891,7 @@ function overlay() {
   /** What Google and the social networks read from this page. Links are checked when asked (`known`: statuses already found). */
   async function seoReport(known: Record<string, number>, checkLinks: boolean) {
     const nav = performance.getEntriesByType('navigation')[0] as (PerformanceNavigationTiming & { responseStatus?: number }) | undefined
-    const headings = [...document.body.querySelectorAll('h1, h2, h3, h4, h5, h6')].filter((h) => !ours(h)).map((h) => ({ level: Number(h.tagName[1]), text: ((h as HTMLElement).innerText || textOf(h)).replace(/\s+/g, ' ').trim().slice(0, 120) }))
+    const headings = [...document.body.querySelectorAll('h1, h2, h3, h4, h5, h6')].filter((h) => !ours(h)).map((h) => ({ level: Number(h.tagName[1]), text: textOf(h).slice(0, 120) }))
 
     const imgs = ([...document.body.querySelectorAll('img')] as HTMLImageElement[]).filter((i) => !ours(i) && !(i.complete && i.naturalWidth > 0 && i.naturalWidth <= 2))
     const missingAlt = imgs

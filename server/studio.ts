@@ -12,7 +12,7 @@ import { ask, quoteForCmd } from './assistant.ts'
 import { DATA_DIR, log } from './util.ts'
 import { typeOf, uploadPath } from './files.ts'
 import { OVERLAY_JS } from './studio-overlay.ts'
-import { encodeFor, findInText, findPattern, modeAt, replaceHits, sourceFiles, textPattern, type Hit } from './studio-source.ts'
+import { encodeFor, findInText, findPattern, fitCase, modeAt, replaceHits, sourceFiles, textPattern, type Hit } from './studio-source.ts'
 import { sanitiseSvg } from './studio-media.ts'
 
 // Studio: the visual site builder. Each website gets its own clean clone under
@@ -766,7 +766,12 @@ function direct(op: StudioOp, files: string[], dir: string, kind: StudioKind, ro
     }
     const hits = findInText(scope, findPattern(op.find, op.matchCase, op.wholeWord))
     if (!hits.length) return null
-    return replaceHits(hits, (h) => encodeFor(h.file, op.replace, h.mode)).map((f) => rel(dir, f))
+    const bodies = new Map<string, string>()
+    const matched = (h: Hit) => {
+      if (!bodies.has(h.file)) bodies.set(h.file, fs.readFileSync(h.file, 'utf8'))
+      return bodies.get(h.file)!.slice(h.index, h.index + h.length)
+    }
+    return replaceHits(hits, (h) => encodeFor(h.file, op.matchCase ? op.replace : fitCase(matched(h), op.replace), h.mode)).map((f) => rel(dir, f))
   }
   if (op.kind === 'theme') {
     const f = themeSwap(dir, kind, op.name, op.before, op.after)
@@ -1322,7 +1327,7 @@ export function publish(p: Project, token: string | null, opts: { draft: boolean
       await run('git', ['clean', '-fdq'], dir)
       saveEdits(dir, null)
       await rebuild(r)
-      return { kind: 'publish', ok: true, text: `Saved as the draft branch ${name}. Open a pull request to review it before it goes live.`, at: new Date().toISOString(), url: `https://github.com/${p.repo}/compare/${branch}...${name}?expand=1` }
+      return { kind: 'publish', ok: true, title: 'Saved as a draft', text: `Saved as the draft branch ${name}. Open a pull request to review it before it goes live.`, at: new Date().toISOString(), url: `https://github.com/${p.repo}/compare/${branch}...${name}?expand=1` }
     }
     let push = await git(['push', 'origin', `HEAD:refs/heads/${branch}`], dir, token)
     if (!push.ok && /rejected|fetch first|non-fast-forward/i.test(push.out)) {

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -268,9 +269,9 @@ export async function studioRoute(route: string, url: URL, req: IncomingMessage,
       const p = find(body.projectId)
       if (!p) return json(res, 404, { error: 'No project by that id' }), true
       const out = publish(p, await token(), { draft: body.draft === true, login: host.login(), exe: await exe() })
-      if (!('error' in out) && body.draft !== true) {
-        lastPush.set(p.id, Date.now())
-        // a push live replaces a booked one
+      if (!('error' in out)) {
+        if (body.draft !== true) lastPush.set(p.id, Date.now())
+        // pushing now (live, or as a draft that takes the edits with it) replaces a booked push
         setSchedule(p.id, null, '')
       }
       return done(out), true
@@ -280,7 +281,10 @@ export async function studioRoute(route: string, url: URL, req: IncomingMessage,
       const body = await readBody(req)
       const p = find(body.projectId)
       if (!p) return json(res, 404, { error: 'No project by that id' }), true
-      return done(discard(p)), true
+      const out = discard(p)
+      // nothing left for a booked push to push
+      if (!('error' in out)) setSchedule(p.id, null, '')
+      return done(out), true
     }
 
     case 'POST /api/studio/close': {
@@ -603,7 +607,13 @@ export async function studioRoute(route: string, url: URL, req: IncomingMessage,
         } catch {
           return json(res, 400, { error: 'Paste the whole key file (it starts with { and ends with })' }), true
         }
-        if (typeof g.client_email !== 'string' || typeof g.private_key !== 'string' || !g.private_key.includes('PRIVATE KEY')) return json(res, 400, { error: 'That isn’t a service account key file: it needs client_email and private_key' }), true
+        if (typeof g.client_email !== 'string' || typeof g.private_key !== 'string') return json(res, 400, { error: 'That isn’t a service account key file: it needs client_email and private_key' }), true
+        if (!/-----BEGIN PRIVATE KEY-----[\s\S]+-----END PRIVATE KEY-----/.test(g.private_key)) return json(res, 400, { error: 'The private key in that file isn’t complete. Download a new JSON key for the service account and paste the whole file.' }), true
+        try {
+          crypto.createPrivateKey(g.private_key.replace(/\\n/g, '\n'))
+        } catch {
+          return json(res, 400, { error: 'The private key in that file can’t be read. Download a new JSON key for the service account and paste the whole file.' }), true
+        }
         patch.google = { client_email: g.client_email, private_key: g.private_key, project_id: typeof g.project_id === 'string' ? g.project_id : undefined }
       }
       const site = body.site as Record<string, unknown> | undefined
