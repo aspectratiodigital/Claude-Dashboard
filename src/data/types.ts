@@ -413,16 +413,26 @@ export interface StudioSite {
   pages: StudioPage[]
   /** whether the site has a robots.txt and a sitemap */
   seo: StudioSeoSite | null
+  /** pages with saved edits waiting to go live, for the checks and before-and-after shots */
+  touched: string[]
+  /** how new photos are made web-ready: the site's own image script, Astro's image pipeline, or plain files */
+  pipeline: 'script' | 'astro' | 'files'
+  /** a push live booked for later */
+  schedule: { at: string; by: string } | null
+  /** how long the last open took, ms (when Studio could skip the build, it's quick) */
+  openedMs: number | null
   /** the outcome of the last save, Claude request, publish or discard */
   last: StudioResult | null
 }
 
 export interface StudioResult {
-  kind: 'save' | 'claude' | 'publish' | 'discard'
+  kind: 'save' | 'claude' | 'publish' | 'discard' | 'revert' | 'content' | 'photos' | 'deploy'
   ok: boolean
   /** what happened, in plain words (Claude's own summary for Claude's work) */
   text: string
   at: string
+  /** a heading other than the kind's own (a draft, say, isn't “Published”) */
+  title?: string
   /** the commit on GitHub, or the page to open a pull request for a draft */
   url?: string
   /** edits that couldn't be placed in the source */
@@ -431,8 +441,10 @@ export interface StudioResult {
 
 /** One change made on the canvas, waiting to be saved into the site's source. */
 export type StudioOp =
-  | (StudioOpBase & { kind: 'text'; before: string; after: string })
-  | (StudioOpBase & { kind: 'image'; before: string; upload: string; name: string })
+  /** `html` when bold, italic, links or line breaks were added; `everywhere` changes every copy of the words across the site */
+  | (StudioOpBase & { kind: 'text'; before: string; after: string; html?: string; everywhere?: boolean })
+  /** a new photo (`upload`), or one already in the site (`src`, from its photo library) */
+  | (StudioOpBase & { kind: 'image'; before: string; upload?: string; src?: string; name: string; everywhere?: boolean })
   | (StudioOpBase & { kind: 'move'; dx: number; dy: number; width: number; snapped: string[] })
   | (StudioOpBase & { kind: 'order'; direction: 'earlier' | 'later'; sibling: string })
   | (StudioOpBase & { kind: 'link'; before: string; after: string })
@@ -440,9 +452,46 @@ export type StudioOp =
   | (StudioOpBase & { kind: 'duplicate' })
   /** hidden everywhere, or only at screen sizes like the one it was hidden on */
   | (StudioOpBase & { kind: 'hide'; scope: 'everywhere' | 'this-size'; width: number })
-  | (StudioOpBase & { kind: 'add-image'; upload: string; name: string; alt: string })
+  | (StudioOpBase & { kind: 'add-image'; upload?: string; src?: string; name: string; alt: string })
   /** the page's search and share details: its <title>, meta description, and social share image */
   | (StudioOpBase & { kind: 'meta'; field: StudioMetaField; before: string; after: string; upload?: string; name?: string })
+  /** CSS on one element, for every screen size or only a range of widths (`media`) */
+  | (StudioOpBase & { kind: 'style'; props: Record<string, string>; before: Record<string, string>; media: StudioMedia | null; width: number })
+  /** an attribute set (after) or removed (after null): button style classes, placeholders, required, animations, video and embed addresses */
+  | (StudioOpBase & { kind: 'attr'; name: string; before: string | null; after: string | null })
+  /** a card or section copied from another page (or this one), pasted after the selected element */
+  | (StudioOpBase & { kind: 'paste'; html: string; from: { page: string; selector: string; label: string; text: string } })
+  | (StudioOpBase & { kind: 'table'; action: 'add-row' | 'remove-row' | 'add-col' | 'remove-col'; row: number; col: number })
+  /** an element's background photo */
+  | (StudioOpBase & { kind: 'bg'; before: string; upload?: string; src?: string; name: string })
+  /** a video file swapped in, or a YouTube, Vimeo or Google Maps embed added after the element */
+  | (StudioOpBase & { kind: 'video'; before: string; upload: string; name: string })
+  | (StudioOpBase & { kind: 'embed'; url: string; src: string; provider: StudioEmbedProvider; title: string })
+  /** a logo or icon swapped for an SVG, keeping the old one's size and colour */
+  | (StudioOpBase & { kind: 'svg'; upload: string; name: string; inline: boolean; before: string; recolour: boolean; markup?: string })
+  /** find and replace across the site's words */
+  | (StudioOpBase & { kind: 'replace'; find: string; replace: string; matchCase: boolean; wholeWord: boolean; scope: 'site' | 'page' })
+  /** one of the site's design tokens (a CSS custom property on :root), for the whole site */
+  | (StudioOpBase & { kind: 'theme'; name: string; before: string; after: string })
+  /**
+   * the site's colours, for the whole site: `map` is every colour that changes
+   * (#rrggbb → #rrggbb, see-through versions keep their see-through). `drop`,
+   * `over` and `set` are how it was chosen: colours taken out (each goes to the
+   * nearest one kept unless `over` says which), and colours given a new value.
+   */
+  | (StudioOpBase & { kind: 'palette'; map: Record<string, string>; drop: string[]; over: Record<string, string>; set: Record<string, string> })
+  /** the site's fonts, for the whole site: each one swapped for another, sized to look the same */
+  | (StudioOpBase & { kind: 'fonts'; swaps: StudioFontSwap[] })
+  /** a change described in words, for Claude to make with the batch */
+  | (StudioOpBase & { kind: 'ask'; prompt: string })
+
+/** a range of screen widths, in CSS pixels (either end open) */
+export interface StudioMedia {
+  min?: number
+  max?: number
+}
+
+export type StudioEmbedProvider = 'youtube' | 'vimeo' | 'maps' | 'other'
 
 export type StudioMetaField = 'title' | 'description' | 'og:title' | 'og:description' | 'og:image'
 
@@ -469,6 +518,11 @@ export interface SeoReport {
   /** links to other pages of the site: `statuses` holds each one checked, `checked` once they all are */
   links: { internal: number; external: number; broken: { href: string; status: number }[]; statuses: Record<string, number>; checked: boolean }
   site: StudioSeoSite
+  /** the business's name, phone numbers, emails, address and hours as the page gives them (for the local business check) */
+  nap: { name: string | null; phones: string[]; emails: string[]; address: string | null; hours: string[]; schemaPhone: string | null }
+  /** the first paragraph of the main content, and the page's words (cut short), for the target phrase check */
+  lead: string
+  text: string
 }
 
 /** Site-wide SEO facts Studio reads from the repo (an Astro sitemap only exists after a build). */
@@ -486,6 +540,8 @@ export interface StudioOpBase {
   label: string
   /** the element's text when the edit was made, to help find it in the source */
   text: string
+  /** the edit that created the element (a duplicate or paste), so this one is placed with it */
+  made?: string
 }
 
 /** what the overlay reports about the element you clicked in Select mode */
@@ -494,10 +550,13 @@ export interface StudioElement {
   tag: string
   label: string
   text: string
-  image: { src: string; alt: string; width: number; height: number } | null
+  image: { src: string; alt: string; width: number; height: number; svg: boolean; fit: string; position: string } | null
   href: string | null
   rect: { x: number; y: number; w: number; h: number }
   style: { font: string; color: string; background: string; padding: string; margin: string }
+  /** computed values the Design section starts from */
+  css: Record<string, string>
+  classes: string[]
   children: number
   /** plain text you can edit in place */
   editable: boolean
@@ -506,4 +565,142 @@ export interface StudioElement {
   siblings: number
   /** dragged or nudged away from where the site puts it */
   moved: boolean
+  /** locked against changes on the canvas (it or a parent) */
+  locked: boolean
+  /** the edit made the element (pasted or duplicated), so its own edits go to Claude */
+  made: string | null
+  /** one of a run of matching items (list item, FAQ, card, slide), with where it sits in the run */
+  item: { selector: string; label: string; index: number; count: number; kind: 'list' | 'faq' | 'card' | 'slide' | 'row' | 'item' } | null
+  /** inside a table: the cell's row and column, and the table's size */
+  table: { selector: string; row: number; col: number; rows: number; cols: number } | null
+  /** a button or link styled as one */
+  button: { classes: string; newTab: boolean } | null
+  /** a form field, with its label */
+  field: { type: string; label: string | null; labelSelector: string | null; placeholder: string | null; required: boolean; name: string } | null
+  /** the form it's in, and its thank-you message when the page has one */
+  form: { selector: string; thanks: { selector: string; text: string } | null } | null
+  /** a background photo set in CSS */
+  bg: string | null
+  /** a video file, or an embedded YouTube, Vimeo or Maps frame */
+  media: { kind: 'video' | 'embed'; src: string; provider: StudioEmbedProvider | null } | null
+  /** an entrance animation the site gives it (data-reveal and the like) */
+  animation: { attr: string; value: string } | null
+  /** a grid or row of items, with how many columns it shows */
+  layout: { display: 'grid' | 'flex'; columns: number; items: number } | null
+}
+
+/** One of the site's design tokens, read from its stylesheets. */
+export interface StudioToken {
+  name: string
+  value: string
+  kind: 'colour' | 'size' | 'font' | 'other'
+}
+
+/** What the overlay reads from the site's own styles: tokens, breakpoints, button styles, animations, fonts. */
+export interface StudioDesign {
+  tokens: StudioToken[]
+  /** widths where the layout changes, from the site's @media rules, with how many rules use each */
+  breakpoints: { width: number; kind: 'min' | 'max'; rules: number }[]
+  /** button looks used on the site (class lists), with a sample's colours */
+  buttons: { classes: string; label: string; background: string; color: string; border: string }[]
+  /** entrance animations in use: attribute and the values seen */
+  animations: { attr: string; values: string[] }[]
+  /** font weights each family has loaded */
+  fonts: { family: string; weights: number[] }[]
+}
+
+/** One colour the site's source uses (see-through versions of it counted with it). */
+export interface StudioColour {
+  /** #rrggbb */
+  hex: string
+  /** places in its styles and markup, plus uses of the design tokens set to it */
+  uses: number
+  /** of those places, how many are see-through (rgba, 8-digit hex) */
+  seeThrough: number
+  /** places in scripts and data files (charts, 3D scenes, generated markup) */
+  scripts: number
+  /** design tokens set to it (--brown, $ink) */
+  tokens: string[]
+  /** where it's written, most first */
+  files: { file: string; count: number }[]
+}
+
+/** A font the site uses, from its source. */
+export interface StudioFont {
+  /** as the site's CSS names it ("KHD Serif") */
+  family: string
+  /** the typeface behind a site's own name for it ("Cormorant Garamond"), when that can be told */
+  actual: string | null
+  category: StudioFontCategory
+  /** self-hosted in the repo, loaded from Google Fonts, or a font on the visitor's computer */
+  source: 'site' | 'google' | 'system'
+  /** places its name is used, plus uses of the tokens set to it */
+  uses: number
+  tokens: string[]
+  /** weights its @font-face rules cover ("400", "100 900") */
+  weights: string[]
+  /** one fixed-weight file stretched over a range of weights (its rules say 100 900, the file is SemiBold): that weight */
+  pinned: number | null
+  italic: boolean
+  /** its font files, relative to the repo */
+  files: string[]
+  /** its @font-face rules, with each file's address on the site (for drawing its name in it) */
+  faces: { url: string; weight: string; style: string }[]
+  /** a full font stack it's used in */
+  stack: string
+}
+
+export type StudioFontCategory = 'serif' | 'sans-serif' | 'display' | 'handwriting' | 'monospace'
+
+/** A family from Google Fonts, for swapping a site font. */
+export interface GoogleFont {
+  family: string
+  category: StudioFontCategory
+  /** serif or sans-serif, for display fonts: what its letters are like */
+  stroke: 'serif' | 'sans-serif' | null
+  /** static weights it comes in */
+  weights: number[]
+  /** the weights that also come in italic */
+  italics: number[]
+  /** a variable font's weight range */
+  variable: { min: number; max: number } | null
+}
+
+/** A font file Studio fetched from Google Fonts (cached on this computer until saved into the site). */
+export interface StudioFontFace {
+  /** the cached file's name: served on the canvas at /__studio/font/<file> */
+  file: string
+  /** "400", or "100 900" for a variable font */
+  weight: string
+  /** the weight the file really is, when it's one weight set to cover a range (as the font it replaces was) */
+  actual?: number
+  style: 'normal' | 'italic'
+  subset: string
+  unicodeRange: string | null
+}
+
+/** One font swapped for another. */
+export interface StudioFontSwap {
+  /** the family as the site names it */
+  from: string
+  /** a family the site already has, or one from Google Fonts */
+  to: string
+  google: boolean
+  /** the size the new font is shown at, so it looks the same size as the old one (1 = as it is) */
+  scale: number
+  /** true while `scale` is Studio's own match, not one picked by hand */
+  auto: boolean
+  category: StudioFontCategory
+  /** the Google font's files */
+  faces?: StudioFontFace[]
+}
+
+/** A node of the layers list. */
+export interface StudioLayer {
+  selector: string
+  label: string
+  text: string
+  depth: number
+  children: number
+  hidden: boolean
 }

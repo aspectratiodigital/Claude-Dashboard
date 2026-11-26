@@ -2,7 +2,7 @@
 // In dev it loads the Vite server (VITE_DEV_SERVER_URL). Otherwise it starts the
 // bundled local API and file server (dist-electron/server.mjs) and loads that,
 // so the installed app shows your live projects with nothing else running.
-const { app, BrowserWindow, shell, dialog, nativeTheme } = require('electron')
+const { app, BrowserWindow, Menu, shell, dialog, nativeTheme, session } = require('electron')
 const path = require('path')
 const { pathToFileURL } = require('url')
 const { startUpdater } = require('./updater.cjs')
@@ -41,6 +41,87 @@ globalThis.blueprintCapture = async (url, { width, height }) => {
   } finally {
     w.destroy()
   }
+}
+
+// Studio's screenshots (server/shots.ts pageShot): any size, sharp (2x) for sending to clients, and the
+// whole page when asked. Chromium's own screenshot command (through the debugger) can capture past the
+// bottom of the window, which capturePage can't.
+// keep in step with COVERED in server/shots.ts
+const COVERED = `(() => {
+  const W = innerWidth, H = innerHeight
+  for (const el of document.body ? document.body.querySelectorAll('*') : []) {
+    const cs = getComputedStyle(el)
+    if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.1 || !(Number(cs.zIndex) >= 100)) continue
+    const r = el.getBoundingClientRect()
+    if (r.width >= W * 0.9 && r.height >= H * 0.9 && r.left <= W * 0.05 && r.top <= H * 0.05) return true
+  }
+  return false
+})()`
+
+globalThis.blueprintShot = async (url, { width, height, full, scale = 1, type = 'png', mobile = false }) => {
+  const w = new BrowserWindow({
+    show: false,
+    width,
+    height,
+    useContentSize: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  })
+  const dbg = w.webContents.debugger
+  try {
+    w.webContents.setAudioMuted(true)
+    w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    dbg.attach('1.3')
+    await dbg.sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: scale, mobile })
+    if (mobile) await dbg.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true }).catch(() => {})
+    // reduced motion skips most intros and shows reveal-on-scroll sections straight away
+    await dbg.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }).catch(() => {})
+    await w.loadURL(url)
+    const js = (code) => w.webContents.executeJavaScript(code, true).catch(() => null)
+    // Studio's script sets __studioReady once the page's edits are in
+    for (let i = 0; i < 60 && !(await js('!window.__studioOps || !!window.__studioReady')); i++) await new Promise((r) => setTimeout(r, 250))
+    await js('document.fonts ? document.fonts.ready.then(() => true) : true')
+    // a splash or intro laid over the whole screen: wait for it to go (as server/shots.ts COVERED)
+    for (let i = 0; i < 24 && (await js(COVERED)); i++) await new Promise((r) => setTimeout(r, 250))
+    if (full) {
+      // scroll through so photos that load late and reveal-on-scroll sections show
+      await js(`(async () => {
+        const h = () => document.documentElement.scrollHeight
+        for (let y = 0; y < h() && y < 40000; y += innerHeight * 0.8) { scrollTo(0, y); await new Promise((r) => setTimeout(r, 120)) }
+        scrollTo(0, h()); await new Promise((r) => setTimeout(r, 400)); scrollTo(0, 0); await new Promise((r) => setTimeout(r, 300))
+      })()`)
+    }
+    await new Promise((r) => setTimeout(r, 1200))
+    const tall = full ? Math.min(Number(await js('document.documentElement.scrollHeight')) || height, 16000) : height
+    const shot = await dbg.sendCommand('Page.captureScreenshot', {
+      format: type,
+      ...(type === 'jpeg' ? { quality: 85 } : {}),
+      captureBeyondViewport: !!full,
+      clip: { x: 0, y: 0, width, height: tall, scale: 1 },
+    })
+    return Buffer.from(shot.data, 'base64')
+  } finally {
+    try {
+      dbg.detach()
+    } catch {
+      /* already gone */
+    }
+    w.destroy()
+  }
+}
+
+/** Right-click in the app: spelling suggestions (British English) on words you're editing, and cut, copy and paste. */
+function contextMenu(win) {
+  win.webContents.on('context-menu', (_e, p) => {
+    const items = []
+    if (p.misspelledWord) {
+      for (const s of p.dictionarySuggestions.slice(0, 6)) items.push({ label: s, click: () => win.webContents.replaceMisspelling(s) })
+      if (!p.dictionarySuggestions.length) items.push({ label: 'No suggestions', enabled: false })
+      items.push({ label: 'Add to dictionary', click: () => win.webContents.session.addWordToSpellCheckerDictionary(p.misspelledWord) }, { type: 'separator' })
+    }
+    if (p.isEditable) items.push({ role: 'cut', enabled: p.editFlags.canCut }, { role: 'copy', enabled: p.editFlags.canCopy }, { role: 'paste', enabled: p.editFlags.canPaste }, { type: 'separator' }, { role: 'selectAll' })
+    else if (p.selectionText.trim()) items.push({ role: 'copy' })
+    if (items.length) Menu.buildFromTemplate(items).popup({ window: win })
+  })
 }
 
 async function startServer() {
@@ -86,6 +167,14 @@ function createWindow(url) {
     win.setBackgroundColor(`#${m[1]}`)
   })
 
+  // a file dropped where nothing takes it would replace the app with that file
+  const noFiles = (e, u) => {
+    if (/^file:/i.test(u)) e.preventDefault()
+  }
+  win.webContents.on('will-navigate', noFiles)
+  win.webContents.on('will-frame-navigate', (e) => noFiles(e, e.url))
+  contextMenu(win)
+
   win.loadURL(url)
   return win
 }
@@ -99,6 +188,12 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(async () => {
+  // Studio checks spelling in British English as you edit a site's words
+  try {
+    session.defaultSession.setSpellCheckerLanguages(['en-GB'])
+  } catch {
+    /* macOS uses the system's own languages */
+  }
   let url = process.env.VITE_DEV_SERVER_URL
   if (!url) {
     try {

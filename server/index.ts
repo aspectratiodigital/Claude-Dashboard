@@ -18,8 +18,8 @@ import { unzip } from './zip.ts'
 import { appRootOf, assetBytes, imagesOf, loadAppMap } from './appmap.ts'
 import { appShot } from './shots.ts'
 import { diffProject, seedNotes, testNote, type Draft } from './notes.ts'
-import { askClaude, closeSite, diffOf, discard, openSite, publish, reapIdle, saveOps, stopStudio, studioState, touch } from './studio.ts'
-import type { StudioElement, StudioOp } from '../src/data/types.ts'
+import { reapIdle, stopStudio } from './studio.ts'
+import { startStudioTimers, studioRoute, type StudioHost } from './studio-routes.ts'
 import { DATA_DIR, ago, ensureDirs, hashColor, log, normaliseUrl, now, prettyName, readJson, slug, writeJson } from './util.ts'
 
 // The local API behind the dashboard. It runs inside the Vite dev server,
@@ -134,6 +134,7 @@ class Engine {
     this.timers.push(setInterval(() => this.ping(), 25_000))
     this.timers.push(setInterval(() => this.shops().catch((e) => log('shop checks failed', e)), 30_000))
     this.timers.push(setInterval(reapIdle, MIN))
+    startStudioTimers(studioHost)
     setTimeout(() => this.sites().catch(() => {}), 4000)
     setTimeout(() => this.shops(true).catch(() => {}), 3000)
   }
@@ -603,6 +604,16 @@ function relTime(iso: string) {
 
 const engine = new Engine()
 
+/** what Studio's routes need from the engine */
+const studioHost: StudioHost = {
+  projects: () => engine.projects,
+  login: () => engine.login,
+  refresh: () => void engine.tick(true).catch(() => {}),
+  note: (d) => engine.addNote(d),
+  json,
+  readBody,
+}
+
 /** Folders whose files the dashboard may open or hand out: projects, Claude's workspace, uploads, knowledge. */
 function fileRoots() {
   const roots = [WORKSPACE, UPLOADS, path.dirname(knowledgeDir('_all')!)]
@@ -625,7 +636,10 @@ function readBody(req: IncomingMessage, limit = 100_000): Promise<Record<string,
     let raw = ''
     req.on('data', (c) => {
       raw += c
-      if (raw.length > limit) req.destroy()
+      if (raw.length > limit) {
+        resolve({})
+        req.destroy()
+      }
     })
     req.on('end', () => {
       try {
@@ -653,25 +667,6 @@ function sameOrigin(req: IncomingMessage) {
   }
 }
 
-const OP_KINDS = new Set(['text', 'image', 'move', 'order', 'link', 'alt', 'duplicate', 'hide', 'add-image', 'meta'])
-const META_FIELDS = new Set(['title', 'description', 'og:title', 'og:description', 'og:image'])
-
-/** A canvas edit from the browser, checked before it goes anywhere near the repo or a prompt. */
-function validOp(o: unknown): o is StudioOp {
-  if (!o || typeof o !== 'object') return false
-  const x = o as Record<string, unknown>
-  const str = (k: string, max = 2000) => typeof x[k] === 'string' && (x[k] as string).length <= max
-  if (!OP_KINDS.has(x.kind as string) || !str('id', 40) || !str('page', 400) || !str('selector', 1000) || !str('label', 200) || !str('text', 2000)) return false
-  if (x.kind === 'image' || x.kind === 'add-image') return str('upload', 40) && /^[a-z0-9]{6,24}$/.test(x.upload as string)
-  if (x.kind === 'meta') {
-    if (!META_FIELDS.has(x.field as string) || !str('before', 1000) || !str('after', 1000)) return false
-    if (x.upload !== undefined && !(str('upload', 40) && /^[a-z0-9]{6,24}$/.test(x.upload as string))) return false
-    return x.field !== 'og:image' || typeof x.upload === 'string'
-  }
-  if (x.kind === 'move') return Number.isFinite(x.dx) && Number.isFinite(x.dy) && Number.isFinite(x.width) && Array.isArray(x.snapped)
-  return true
-}
-
 const NOTE_KINDS: NoteKind[] = ['build', 'build-ok', 'build-fail', 'deploying', 'deployed', 'deploy-fail', 'issue', 'pr', 'merged', 'review', 'push', 'claude', 'down', 'up', 'perf', 'order', 'stock']
 
 export async function handle(req: IncomingMessage, res: ServerResponse, next: () => void) {
@@ -682,6 +677,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
   // Every route, reads included: snapshots, synced Claude threads and project
   // notes are private, and a DNS-rebinding page could otherwise read them.
   if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' })
+  if (await studioRoute(route, url, req, res, studioHost)) return
 
   switch (route) {
     case 'GET /api/snapshot':
@@ -827,74 +823,6 @@ export async function handle(req: IncomingMessage, res: ServerResponse, next: ()
       const exe = await findClaude(loadSettings().claudePath)
       if (!exe) return json(res, 503, { error: 'Claude Code is not installed on this computer' })
       return json(res, 200, await addSuggested(exe, String(body.id ?? '')))
-    }
-
-    case 'GET /api/studio': {
-      // where a site is up to in Studio: downloading, building, ready (with its preview port)
-      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
-      if (!p) return json(res, 404, { error: 'No project by that id' })
-      touch(p.id)
-      return json(res, 200, studioState(p))
-    }
-
-    case 'POST /api/studio/open': {
-      // open a site in Studio (sync: true pulls the latest from GitHub again)
-      const body = await readBody(req)
-      const p = engine.projects.find((x) => x.id === body.projectId)
-      if (!p) return json(res, 404, { error: 'No project by that id' })
-      return json(res, 200, openSite(p, (await githubAuth()).token, { sync: body.sync === true }))
-    }
-
-    case 'POST /api/studio/save': {
-      // edits made on the canvas, saved into the site's source (Claude places the tricky ones)
-      const body = await readBody(req, 400_000)
-      const p = engine.projects.find((x) => x.id === body.projectId)
-      if (!p) return json(res, 404, { error: 'No project by that id' })
-      const ops = Array.isArray(body.ops) ? (body.ops as unknown[]).filter(validOp).slice(0, 200) : []
-      if (!ops.length) return json(res, 400, { error: 'No edits to save' })
-      const out = saveOps(p, ops, await findClaude(loadSettings().claudePath))
-      return 'error' in out ? json(res, 409, out) : json(res, 200, out)
-    }
-
-    case 'POST /api/studio/claude': {
-      // a change asked for in words, made by Claude in Studio's copy of the site
-      const body = await readBody(req, 100_000)
-      const p = engine.projects.find((x) => x.id === body.projectId)
-      const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 4000) : ''
-      if (!p || !prompt) return json(res, 400, { error: 'Say what to change' })
-      const el = body.element && typeof body.element === 'object' ? (body.element as StudioElement) : null
-      const out = askClaude(p, prompt, { page: String(body.page ?? '/').slice(0, 300), element: el, width: Number(body.width) || 0 }, await findClaude(loadSettings().claudePath))
-      return 'error' in out ? json(res, 409, out) : json(res, 200, out)
-    }
-
-    case 'GET /api/studio/diff': {
-      const p = engine.projects.find((x) => x.id === url.searchParams.get('project'))
-      if (!p) return json(res, 404, { error: 'No project by that id' })
-      return json(res, 200, { diff: await diffOf(p) })
-    }
-
-    case 'POST /api/studio/publish': {
-      // push the saved edits live (one commit on the default branch), or as a draft branch
-      const body = await readBody(req)
-      const p = engine.projects.find((x) => x.id === body.projectId)
-      if (!p) return json(res, 404, { error: 'No project by that id' })
-      const token = (await ghToken()) ?? (await githubAuth()).token
-      const out = publish(p, token, { draft: body.draft === true, login: engine.login, exe: await findClaude(loadSettings().claudePath) })
-      return 'error' in out ? json(res, 409, out) : json(res, 200, out)
-    }
-
-    case 'POST /api/studio/discard': {
-      const body = await readBody(req)
-      const p = engine.projects.find((x) => x.id === body.projectId)
-      if (!p) return json(res, 404, { error: 'No project by that id' })
-      const out = discard(p)
-      return 'error' in out ? json(res, 409, out) : json(res, 200, out)
-    }
-
-    case 'POST /api/studio/close': {
-      const body = await readBody(req)
-      if (typeof body.projectId === 'string') closeSite(body.projectId)
-      return json(res, 200, { ok: true })
     }
 
     case 'POST /api/refresh':

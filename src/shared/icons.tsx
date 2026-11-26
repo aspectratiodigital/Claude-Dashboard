@@ -238,6 +238,209 @@ export const Icon = {
       <path d="M12 18l4-6" />
     </S>
   ),
+  lock: (p: P) => (
+    <S {...p}>
+      <rect x="5" y="11" width="14" height="9" rx="1.5" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </S>
+  ),
+  unlock: (p: P) => (
+    <S {...p}>
+      <rect x="5" y="11" width="14" height="9" rx="1.5" />
+      <path d="M8 11V8a4 4 0 0 1 7.5-2" />
+    </S>
+  ),
+  crop: (p: P) => (
+    <S {...p}>
+      <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+      <path d="M18 22V8a2 2 0 0 0-2-2H2" />
+    </S>
+  ),
+  sliders: (p: P) => (
+    <S {...p}>
+      <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" />
+      <circle cx="16" cy="6" r="2" />
+      <circle cx="10" cy="12" r="2" />
+      <circle cx="18" cy="18" r="2" />
+    </S>
+  ),
+  grid: (p: P) => (
+    <S {...p}>
+      <rect x="3" y="3" width="18" height="18" rx="1.5" />
+      <path d="M9 3v18M15 3v18M3 9h18M3 15h18" />
+    </S>
+  ),
+  ruler: (p: P) => (
+    <S {...p}>
+      <path d="M3 17 17 3l4 4L7 21z" />
+      <path d="M7 13l2 2M10 10l2 2M13 7l2 2" />
+    </S>
+  ),
+  qr: (p: P) => (
+    <S {...p}>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <path d="M14 14h3v3M21 14v.01M14 21h3M21 18v3h-1" />
+    </S>
+  ),
+  camera: (p: P) => (
+    <S {...p}>
+      <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </S>
+  ),
+  clock: (p: P) => (
+    <S {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </S>
+  ),
+  history: (p: P) => (
+    <S {...p}>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5M12 7v5l3 2" />
+    </S>
+  ),
+  rocket: (p: P) => (
+    <S {...p}>
+      <path d="M5 15c-1.5 1.5-2 5-2 5s3.5-.5 5-2" />
+      <path d="M9 18l-3-3c1-4 4-9 12-11-2 8-7 11-11 12z" />
+      <circle cx="15" cy="9" r="1.5" />
+    </S>
+  ),
+  calendar: (p: P) => (
+    <S {...p}>
+      <rect x="3" y="5" width="18" height="16" rx="1.5" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </S>
+  ),
+  check: (p: P) => (
+    <S {...p}>
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </S>
+  ),
+  palette: (p: P) => (
+    <S {...p}>
+      <path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-1.8 0-.5-.2-.9-.5-1.3-.3-.3-.5-.8-.5-1.2 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z" />
+      <circle cx="7.5" cy="11" r="1" />
+      <circle cx="10.5" cy="7" r="1" />
+      <circle cx="15" cy="7.5" r="1" />
+    </S>
+  ),
+  type: (p: P) => (
+    <S {...p}>
+      <path d="M5 6V4h14v2M12 4v16M9 20h6" />
+    </S>
+  ),
+  alignLeft: (p: P) => (
+    <S {...p}>
+      <path d="M4 6h16M4 10h10M4 14h16M4 18h10" />
+    </S>
+  ),
+  alignCenter: (p: P) => (
+    <S {...p}>
+      <path d="M4 6h16M7 10h10M4 14h16M7 18h10" />
+    </S>
+  ),
+  alignRight: (p: P) => (
+    <S {...p}>
+      <path d="M4 6h16M10 10h10M4 14h16M10 18h10" />
+    </S>
+  ),
+  video: (p: P) => (
+    <S {...p}>
+      <rect x="3" y="6" width="13" height="12" rx="1.5" />
+      <path d="M16 10l5-3v10l-5-3z" />
+    </S>
+  ),
+  plus: (p: P) => (
+    <S {...p}>
+      <path d="M12 5v14M5 12h14" />
+    </S>
+  ),
+  minus: (p: P) => (
+    <S {...p}>
+      <path d="M5 12h14" />
+    </S>
+  ),
+  sidebar: (p: P) => (
+    <S {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M15 4v16" />
+    </S>
+  ),
+  chevron: (p: P) => (
+    <S {...p}>
+      <path d="M6 9l6 6 6-6" />
+    </S>
+  ),
+  more: (p: P) => (
+    <S {...p}>
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+    </S>
+  ),
+  wand: (p: P) => (
+    <S {...p}>
+      <path d="M4 20 15 9M14 4v2M19 9h2M17.5 5.5 19 4M18 12l1.5 1.5M10 5.5 8.5 4" />
+    </S>
+  ),
+  globe: (p: P) => (
+    <S {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" />
+    </S>
+  ),
+  eye: (p: P) => (
+    <S {...p}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </S>
+  ),
+  table: (p: P) => (
+    <S {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M3 10h18M3 15h18M9 10v10M15 10v10" />
+    </S>
+  ),
+  list: (p: P) => (
+    <S {...p}>
+      <path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" />
+    </S>
+  ),
+  bold: (p: P) => (
+    <S {...p}>
+      <path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z" />
+    </S>
+  ),
+  map: (p: P) => (
+    <S {...p}>
+      <path d="M12 21s-7-6.3-7-11.5a7 7 0 0 1 14 0C19 14.7 12 21 12 21z" />
+      <circle cx="12" cy="9.5" r="2.5" />
+    </S>
+  ),
+  overview: (p: P) => (
+    <S {...p}>
+      <rect x="3" y="3" width="8" height="8" rx="1.5" />
+      <rect x="13" y="3" width="8" height="8" rx="1.5" />
+      <rect x="3" y="13" width="8" height="8" rx="1.5" />
+      <rect x="13" y="13" width="8" height="8" rx="1.5" />
+    </S>
+  ),
+  paste: (p: P) => (
+    <S {...p}>
+      <rect x="6" y="4" width="12" height="17" rx="1.5" />
+      <path d="M9 4V3h6v1M9 11h6M9 15h4" />
+    </S>
+  ),
+  alert: (p: P) => (
+    <S {...p}>
+      <path d="M12 3 2 20h20z" />
+      <path d="M12 10v4M12 17v.01" />
+    </S>
+  ),
 }
 
 /** Icon for each notification kind. */
