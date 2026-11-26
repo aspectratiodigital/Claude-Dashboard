@@ -57,6 +57,22 @@ function overlay() {
     markup?: string
     prompt?: string
     from?: { page: string; selector: string; label: string; text: string }
+    /** the site's colours: #rrggbb → #rrggbb */
+    map?: Record<string, string>
+    swaps?: FontSwap[]
+  }
+  interface FontFile {
+    file: string
+    weight: string
+    style: string
+    unicodeRange: string | null
+  }
+  interface FontSwap {
+    from: string
+    to: string
+    google: boolean
+    scale: number
+    faces?: FontFile[]
   }
   type W = Window & { __studio?: boolean; __studioOps?: Op[]; __studioReady?: boolean; axe?: { run: (ctx: unknown, opts: unknown) => Promise<AxeResult> } }
   interface AxeResult {
@@ -117,6 +133,7 @@ function overlay() {
     [data-studio-editing]{outline:2px solid #ff9f1a!important;outline-offset:2px;cursor:text!important;-webkit-user-select:text!important;user-select:text!important}
     [data-studio-editing] *{cursor:text!important}
     html[data-studio-dragging], html[data-studio-dragging] *{cursor:grabbing!important;user-select:none!important}
+    [data-studio-mark]{outline:2px dashed #ff2fa0!important;outline-offset:2px!important}
     ::highlight(studio-find){background:#ffe066;color:#111}
     ::highlight(studio-find-now){background:#ff9f1a;color:#111}
   `
@@ -561,6 +578,304 @@ function overlay() {
     return document.importNode(svg, true) as unknown as SVGSVGElement
   }
 
+  // --- The site's colours and fonts -----------------------------------------------------------
+
+  const paint = document.createElement('canvas').getContext('2d')!
+  const colourCache = new Map<string, number[] | null>()
+  /** a CSS colour as [r, g, b, a] (the browser reads it, so every way of writing one works), or null */
+  function rgbaOf(t: string): number[] | null {
+    const k = t.trim().toLowerCase()
+    if (colourCache.has(k)) return colourCache.get(k)!
+    let out: number[] | null = null
+    if (k && !/^(transparent|currentcolor|inherit|initial|unset|none|auto)$/.test(k) && !k.includes('var(')) {
+      paint.fillStyle = '#010203'
+      paint.fillStyle = k
+      let v = String(paint.fillStyle)
+      if (v === '#010203') {
+        paint.fillStyle = '#030201'
+        paint.fillStyle = k
+        if (String(paint.fillStyle) === '#030201') v = ''
+      }
+      if (v.startsWith('#')) out = [parseInt(v.slice(1, 3), 16), parseInt(v.slice(3, 5), 16), parseInt(v.slice(5, 7), 16), 1]
+      else {
+        const m = v.match(/rgba?\(([^)]+)\)/)
+        if (m) {
+          const p = m[1].split(/\s*,\s*/).map(Number)
+          out = [p[0], p[1], p[2], p[3] ?? 1]
+        }
+      }
+    }
+    colourCache.set(k, out)
+    return out
+  }
+  const hexOf = (c: number[]) => `#${c
+    .slice(0, 3)
+    .map((n) => Math.round(n).toString(16).padStart(2, '0'))
+    .join('')}`
+  const COLOUR_IN = /#[0-9a-f]{3,8}(?![\w-])|\b(?:rgba?|hsla?)\([^()]*\)|(?<![\w-])[a-z]{3,20}(?![\w(-])/gi
+  const COLOURED = /^(color|background-color|background-image|border-(top|right|bottom|left|block-start|block-end|inline-start|inline-end)-color|outline-color|box-shadow|text-shadow|fill|stroke|stop-color|flood-color|lighting-color|caret-color|accent-color|column-rule-color|text-decoration-color|text-emphasis-color|-webkit-text-fill-color|-webkit-text-stroke-color|scrollbar-color|filter)$/
+  /** a value with the colours in `map` changed (each keeps its see-through), or null when nothing in it changes */
+  function recolour(value: string, map: Record<string, string>, names: boolean): string | null {
+    const masked = value.replace(/url\([^)]*\)|"[^"]*"|'[^']*'/g, (m) => ' '.repeat(m.length))
+    let out = ''
+    let last = 0
+    for (const m of masked.matchAll(COLOUR_IN)) {
+      const tok = value.slice(m.index!, m.index! + m[0].length)
+      if (/^[a-z]/i.test(tok) && !/^(rgb|hsl)a?\(/i.test(tok) && !names) continue
+      const c = rgbaOf(tok)
+      const to = c ? map[hexOf(c)] : undefined
+      const n = to ? rgbaOf(to) : null
+      if (!c || !n) continue
+      out += value.slice(last, m.index!) + (c[3] < 1 ? `rgba(${n[0]}, ${n[1]}, ${n[2]}, ${Math.round(c[3] * 1000) / 1000})` : to)
+      last = m.index! + m[0].length
+    }
+    return last ? out + value.slice(last) : null
+  }
+
+  /** every style declaration the site has: its stylesheets' rules (not Studio's), @imported ones too, and inline styles */
+  function eachStyle(fn: (st: CSSStyleDeclaration) => void) {
+    const visit = (rules: CSSRuleList) => {
+      for (const r of rules) {
+        if (r instanceof CSSImportRule) {
+          try {
+            if (r.styleSheet) visit(r.styleSheet.cssRules)
+          } catch {
+            /* from another site */
+          }
+          continue
+        }
+        // a font's own declaration (its family name, its files) isn't styling
+        if (r instanceof CSSFontFaceRule) continue
+        const st = (r as CSSStyleRule).style
+        if (st) fn(st)
+        const inner = (r as CSSGroupingRule).cssRules
+        if (inner?.length) visit(inner)
+      }
+    }
+    for (const sheet of document.styleSheets) {
+      if (sheet.ownerNode && ours(sheet.ownerNode as Element)) continue
+      try {
+        visit(sheet.cssRules)
+      } catch {
+        /* a stylesheet from another site (fonts): can't be read, and has no colours of the site's */
+      }
+    }
+    for (const el of document.querySelectorAll<HTMLElement>('[style]')) if (!ours(el)) fn(el.style)
+  }
+
+  /** change declarations, keeping how to put each back */
+  function rewrite(test: (prop: string, value: string) => string | null): () => void {
+    const changes: [CSSStyleDeclaration, string, string, string][] = []
+    eachStyle((st) => {
+      for (let i = 0; i < st.length; i++) {
+        const p = st[i]
+        const v = st.getPropertyValue(p)
+        const next = v ? test(p, v) : null
+        if (next !== null && next !== v) changes.push([st, p, v, next])
+      }
+    })
+    for (const [st, p, , next] of changes) st.setProperty(p, next, st.getPropertyPriority(p))
+    return () => {
+      for (const [st, p, was] of changes.reverse()) st.setProperty(p, was, st.getPropertyPriority(p))
+    }
+  }
+
+  let paletteOn: Op | null = null
+  function applyPalette(op: Op) {
+    const map = op.map ?? {}
+    const undoCss = rewrite((p, v) => (p.startsWith('--') ? recolour(v, map, !/[,"']|serif|mono/i.test(v)) : COLOURED.test(p) ? recolour(v, map, true) : null))
+    // SVG drawn in the page's own markup
+    const attrs: [Element, string, string][] = []
+    for (const el of document.querySelectorAll('[fill], [stroke], [stop-color], [flood-color]')) {
+      if (ours(el)) continue
+      for (const a of ['fill', 'stroke', 'stop-color', 'flood-color']) {
+        const v = el.getAttribute(a)
+        const next = v ? recolour(v, map, true) : null
+        if (v && next) {
+          attrs.push([el, a, v])
+          el.setAttribute(a, next)
+        }
+      }
+    }
+    paletteOn = op
+    applied.set(op.id, () => {
+      undoCss()
+      for (const [el, a, v] of attrs) el.setAttribute(a, v)
+      if (paletteOn === op) paletteOn = null
+    })
+  }
+
+  const unquote = (s: string) => s.trim().replace(/^(["'])(.*)\1$/, '$2').trim()
+  const familyItems = (v: string) => (v.match(/("[^"]*"|'[^']*'|[^,]+)/g) ?? []).map((x) => x.trim()).filter(Boolean)
+  /** the fonts on the canvas going by Studio's own names, back to the family each stands in for */
+  const fontAlias = new Map<string, string>()
+  /** a family's @font-face rules on this page, with their files as full addresses */
+  function faceRules(family: string) {
+    const out: { src: string; weight: string; style: string; range: string | undefined; adjust: number }[] = []
+    const want = family.toLowerCase()
+    const visit = (rules: CSSRuleList, base: string) => {
+      for (const r of rules) {
+        if (r instanceof CSSFontFaceRule) {
+          if (unquote(r.style.getPropertyValue('font-family')).toLowerCase() !== want) continue
+          const src = r.style.getPropertyValue('src').replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/g, (_m, _q, u: string) => `url("${new URL(u, base).href}")`)
+          const adj = parseFloat(r.style.getPropertyValue('size-adjust'))
+          out.push({ src, weight: r.style.getPropertyValue('font-weight') || '400', style: r.style.getPropertyValue('font-style') || 'normal', range: r.style.getPropertyValue('unicode-range') || undefined, adjust: adj > 0 ? adj / 100 : 1 })
+        } else if ((r as CSSGroupingRule).cssRules) visit((r as CSSGroupingRule).cssRules, base)
+      }
+    }
+    for (const sheet of document.styleSheets) {
+      try {
+        visit(sheet.cssRules, sheet.href ?? location.href)
+      } catch {
+        /* another site's */
+      }
+    }
+    return out
+  }
+
+  function applyFonts(op: Op) {
+    const added: FontFace[] = []
+    const names = new Map<string, string>()
+    const pct = (n: number) => `${Math.round(n * 1000) / 10}%`
+    ;(op.swaps ?? []).forEach((s, i) => {
+      const name = `Studio font ${op.id} ${i}`
+      if (s.google && s.faces?.length) {
+        for (const f of s.faces) added.push(new FontFace(name, `url(/__studio/font/${f.file}) format("woff2")`, { weight: f.weight, style: f.style, unicodeRange: f.unicodeRange ?? undefined, display: 'swap', sizeAdjust: pct(s.scale) } as FontFaceDescriptors))
+      } else {
+        const rules = faceRules(s.to)
+        // a font only on the visitor's computer can't be resized: it's used as it is
+        if (!rules.length) return void names.set(s.from.toLowerCase(), s.to)
+        for (const r of rules) added.push(new FontFace(name, r.src, { weight: r.weight, style: r.style, unicodeRange: r.range, display: 'swap', sizeAdjust: pct(r.adjust * s.scale) } as FontFaceDescriptors))
+      }
+      names.set(s.from.toLowerCase(), name)
+      fontAlias.set(name.toLowerCase(), s.from)
+    })
+    for (const f of added) {
+      document.fonts.add(f)
+      void f.load().catch(() => {})
+    }
+    const undo = rewrite((p, v) => {
+      if (p !== 'font-family' && !(p.startsWith('--') && /,|["']/.test(v))) return null
+      let hit = false
+      const items = familyItems(v).map((it) => {
+        const to = names.get(unquote(it).toLowerCase())
+        if (!to) return it
+        hit = true
+        return `"${to}"`
+      })
+      return hit ? items.join(', ') : null
+    })
+    applied.set(op.id, () => {
+      undo()
+      for (const f of added) document.fonts.delete(f)
+      for (const k of [...fontAlias.keys()]) if (k.startsWith(`studio font ${op.id.toLowerCase()} `)) fontAlias.delete(k)
+    })
+  }
+
+  // measuring fonts, so a swapped one can be shown at the size that looks the same
+  const SAMPLE = 'The quick brown fox jumps over the lazy dog, 0123456789'
+  function metricsOf(family: string, weight: number, style: string) {
+    paint.font = `${style} ${weight} 100px "${family}", monospace`
+    const x = paint.measureText('x').actualBoundingBoxAscent
+    const cap = paint.measureText('H').actualBoundingBoxAscent
+    const w = paint.measureText(SAMPLE).width
+    const caps = paint.measureText(SAMPLE.toUpperCase()).width
+    // a font that didn't load measures as the fallback
+    paint.font = `${style} ${weight} 100px monospace`
+    const missing = Math.abs(paint.measureText(SAMPLE).width - w) < 0.01
+    return { x, cap, w, caps, missing }
+  }
+  async function measureFonts(list: { key: string; family?: string; faces?: FontFile[]; weight?: number; style?: string }[]) {
+    const out: Record<string, ReturnType<typeof metricsOf> | null> = {}
+    for (const f of list.slice(0, 12)) {
+      const weight = f.weight ?? 400
+      const style = f.style ?? 'normal'
+      try {
+        if (f.faces?.length) {
+          const name = `Studio probe ${uid()}`
+          const faces = f.faces.map((x) => new FontFace(name, `url(/__studio/font/${x.file}) format("woff2")`, { weight: x.weight, style: x.style, unicodeRange: x.unicodeRange ?? undefined } as FontFaceDescriptors))
+          faces.forEach((x) => document.fonts.add(x))
+          await Promise.all(faces.map((x) => x.load().catch(() => null)))
+          out[f.key] = metricsOf(name, weight, style)
+          faces.forEach((x) => document.fonts.delete(x))
+        } else if (f.family) {
+          await document.fonts.load(`${style} ${weight} 100px "${f.family}"`).catch(() => [])
+          out[f.key] = metricsOf(f.family, weight, style)
+        }
+      } catch {
+        out[f.key] = null
+      }
+    }
+    return out
+  }
+
+  /** what each font is used for on this page: how much text, how much of it in capitals, for what, at what weights */
+  function fontUsage() {
+    const out: Record<string, { elements: number; letters: number; upper: number; roles: Record<string, number>; weights: Record<string, number>; italic: number }> = {}
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    const seen = new Set<Element>()
+    for (let t = walker.nextNode(); t && seen.size < 3000; t = walker.nextNode()) {
+      const el = t.parentElement
+      const text = (t.textContent ?? '').trim()
+      if (!el || !text || seen.has(el) || ours(el) || el.closest('script, style, noscript, [data-studio-ui], [data-studio-bar]')) continue
+      seen.add(el)
+      const cs = getComputedStyle(el)
+      if (cs.visibility === 'hidden' || !el.getClientRects().length) continue
+      const fam = unquote(familyItems(cs.fontFamily)[0] ?? '')
+      const key = (fontAlias.get(fam.toLowerCase()) ?? fam).toLowerCase()
+      const u = (out[key] ??= { elements: 0, letters: 0, upper: 0, roles: {}, weights: {}, italic: 0 })
+      const shown = cs.textTransform === 'uppercase' ? text.toUpperCase() : text
+      const letters = shown.replace(/[^\p{L}]/gu, '')
+      u.elements++
+      u.letters += letters.length
+      u.upper += letters.replace(/[^\p{Lu}]/gu, '').length
+      const role = el.closest('h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4') ? 'headings' : el.closest('button, .btn, [class*="button" i], [role=button]') ? 'buttons' : el.closest('nav, header') ? 'menu' : el.closest('label, input, select, textarea, legend') ? 'forms' : el.closest('footer') ? 'footer' : 'text'
+      u.roles[role] = (u.roles[role] ?? 0) + letters.length
+      u.weights[cs.fontWeight] = (u.weights[cs.fontWeight] ?? 0) + letters.length
+      if (cs.fontStyle !== 'normal') u.italic += letters.length
+    }
+    return out
+  }
+
+  /** outline what uses a colour or a font, for "Show on the page" */
+  let marked: Element[] = []
+  function mark(what: { colour?: string; font?: string } | null) {
+    for (const el of marked) el.removeAttribute('data-studio-mark')
+    marked = []
+    if (!what || (!what.colour && !what.font)) return 0
+    // a colour that's been taken out: look as the page was
+    const pal = what.colour && paletteOn ? paletteOn : null
+    if (pal) revert(pal.id)
+    const want = what.colour?.toLowerCase()
+    const font = what.font?.toLowerCase()
+    const same = (v: string) => {
+      const c = rgbaOf(v)
+      return !!c && c[3] > 0.05 && hexOf(c) === want
+    }
+    for (const el of document.body.querySelectorAll('*')) {
+      if (marked.length >= 400) break
+      if (ours(el) || el.closest('[data-studio-ui]')) continue
+      const cs = getComputedStyle(el)
+      if (cs.display === 'none' || !el.getClientRects().length) continue
+      const ownText = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim())
+      let hit = false
+      if (want) {
+        hit = (ownText && same(cs.color)) || same(cs.backgroundColor) || (parseFloat(cs.borderTopWidth) > 0 && same(cs.borderTopColor)) || (parseFloat(cs.borderBottomWidth) > 0 && same(cs.borderBottomColor)) || (el instanceof SVGElement && (same(cs.fill) || same(cs.stroke)))
+      } else if (font && ownText) {
+        const fam = unquote(familyItems(cs.fontFamily)[0] ?? '').toLowerCase()
+        hit = (fontAlias.get(fam)?.toLowerCase() ?? fam) === font
+      }
+      if (hit) {
+        el.setAttribute('data-studio-mark', '')
+        marked.push(el)
+      }
+    }
+    if (pal) apply(pal)
+    const first = marked.find((el) => el.getBoundingClientRect().height > 0)
+    first?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    return marked.length
+  }
+
   // --- Edits: apply and revert -------------------------------------------------------------
 
   /** how to undo each applied edit, by id */
@@ -647,6 +962,14 @@ function overlay() {
       const was = root.style.getPropertyValue(op.name)
       root.style.setProperty(op.name, op.after)
       applied.set(op.id, () => (was ? root.style.setProperty(op.name!, was) : root.style.removeProperty(op.name!)))
+      return true
+    }
+    if (op.kind === 'palette' && op.map) {
+      applyPalette(op)
+      return true
+    }
+    if (op.kind === 'fonts' && Array.isArray(op.swaps)) {
+      applyFonts(op)
       return true
     }
     if (op.kind === 'replace' && typeof op.find === 'string') return replaceText(op.id, op.find, op.replace ?? '', undefined, { matchCase: !!op.matchCase, wholeWord: !!op.wholeWord, exactBlocks: false })
@@ -2219,6 +2542,11 @@ function overlay() {
     if (d.type === 'copy' && primary()) post({ type: 'copy', clip: clipOf(primary()!) })
     if (d.type === 'layers') post({ type: 'layers', layers: layers(), nonce: d.nonce })
     if (d.type === 'design') post({ type: 'design', design: design() })
+    if (d.type === 'fonts-measure') {
+      const list = Array.isArray((raw as { fonts?: unknown }).fonts) ? ((raw as { fonts: Parameters<typeof measureFonts>[0] }).fonts) : []
+      void measureFonts(list).then((metrics) => post({ type: 'fonts-measured', metrics, usage: (raw as { usage?: boolean }).usage ? fontUsage() : undefined, nonce: d.nonce }))
+    }
+    if (d.type === 'mark') post({ type: 'marked', count: mark((raw as { what?: { colour?: string; font?: string } | null }).what ?? null), nonce: d.nonce })
     if (d.type === 'find') post({ type: 'found', ...find(d.q ?? '', !!d.matchCase, !!d.wholeWord, d.step ?? 0) })
     if (d.type === 'a11y')
       void a11y()
@@ -2235,7 +2563,7 @@ function overlay() {
   if (headless) {
     // a phone preview or a screenshot: show the unsaved edits, nothing else
     const go = () => {
-      for (const op of win.__studioOps ?? []) if (op.page === location.pathname || op.page === '*' || op.kind === 'theme' || (op.kind === 'replace' && op.scope === 'site') || (op.kind === 'text' && op.everywhere)) apply(op)
+      for (const op of win.__studioOps ?? []) if (op.page === location.pathname || op.page === '*' || op.kind === 'theme' || op.kind === 'palette' || op.kind === 'fonts' || (op.kind === 'replace' && op.scope === 'site') || (op.kind === 'text' && op.everywhere)) apply(op)
       win.__studioReady = true
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go)
@@ -2254,7 +2582,7 @@ function overlay() {
     onMessage(d, e.data)
   })
   function here(op: Op) {
-    return op.page === location.pathname || op.kind === 'theme' || (op.kind === 'replace' && op.scope === 'site') || (op.kind === 'text' && !!op.everywhere)
+    return op.page === location.pathname || op.kind === 'theme' || op.kind === 'palette' || op.kind === 'fonts' || (op.kind === 'replace' && op.scope === 'site') || (op.kind === 'text' && !!op.everywhere)
   }
 
   const announce = () => post({ type: 'page', path: location.pathname, hash: location.hash, title: document.title })

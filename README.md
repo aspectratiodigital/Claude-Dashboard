@@ -226,7 +226,9 @@ Click anything to select it (`Shift` adds more; one set of changes then applies 
 
 ### Site tab: the whole site
 
-- **Theme:** the site's design tokens (CSS custom properties: colours, fonts, sizes), changed once for every page.
+- **Theme → Colours:** every colour written in the site's styles, markup and scripts, most used first (or sorted by colour), with the tokens that name each one. Untick a colour to take it out: everything that used it takes the nearest colour you keep (judged by how alike they look, in OKLab), or one you pick from **Becomes**. Click a colour to change it, see where it's used on the page, and which files write it. **Tidy near-duplicates** takes out colours that look almost the same as a more-used one. Saving rewrites each colour in place, in the notation it was written in (a see-through `rgba()` stays see-through). Photos, logos and SVG files keep their own colours.
+- **Theme → Fonts:** every font the site's CSS names, drawn in itself, with what it's used for on the page. **Swap** one for another of the site's fonts or any Google font: Studio measures both on the page and shows the new one at the size that looks the same (by the height of its small letters, or its capitals where it's mostly set in capitals), held back if lines would get longer, so text keeps fitting. Nudge the size by hand, or match it again. Saving copies a Google font's files into the site (nothing loads from Google), adds its `@font-face` rules with `size-adjust` at the matched size, points every font stack, preload and `document.fonts.load()` at it, and removes the old font's rules and files once nothing else uses them.
+- **Theme → Tokens:** the site's design tokens (CSS custom properties: colours, fonts, sizes), changed once for every page.
 - **Content:** the site's copy and data files (JSON, YAML, Markdown front matter) as forms, so a price list or a team bio is a form field, not a hunt through the page.
 - **Photos:** every photo in the repo with where it's used, a detail view, and the **unused** ones to delete in one go.
 - **Find:** search this page or every page, and replace (capitals follow each match unless **Match case** is on).

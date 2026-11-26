@@ -3,9 +3,10 @@ import type { StudioOp, StudioToken } from '../data/types'
 import type { ContentData, ContentFile, FrontValue, LibraryPhoto, SearchHit } from '../data/studio-api'
 import { Icon } from './icons'
 import { Result, Seg, Spin, Toggle, bytes, getJson, hexOf, post, q, type StudioCtx } from './StudioUi'
+import { Colours, Fonts } from './StudioTheme'
 
 // The Site tab: things that belong to the whole site rather than one element.
-// Theme (the site's design tokens), Content (its data and copy files as
+// Theme (its colours, fonts and design tokens), Content (its data and copy files as
 // forms), Photos (every photo in the repo, what uses each, and the unused
 // ones to tidy away) and Find (on this page or every page, and replace).
 
@@ -47,10 +48,47 @@ export function SiteTab({ ctx, sub }: { ctx: StudioCtx; sub?: string }) {
 
 // --- Theme -----------------------------------------------------------------------------------
 
+type ThemeSub = 'colours' | 'fonts' | 'tokens'
+const THEME_SUBS: readonly (readonly [ThemeSub, string])[] = [
+  ['colours', 'Colours'],
+  ['fonts', 'Fonts'],
+  ['tokens', 'Tokens'],
+]
+
+function Theme({ ctx }: { ctx: StudioCtx }) {
+  const [sub, setSub] = useState<ThemeSub>(() => {
+    try {
+      const s = localStorage.getItem('ard.studio.theme-sub') as ThemeSub | null
+      return s && THEME_SUBS.some(([k]) => k === s) ? s : 'colours'
+    } catch {
+      return 'colours'
+    }
+  })
+  const pick = (s: ThemeSub) => {
+    setSub(s)
+    try {
+      localStorage.setItem('ard.studio.theme-sub', s)
+    } catch {
+      /* storage off */
+    }
+  }
+  return (
+    <>
+      <div className="st-subtabs st-subtabs-2">
+        <Seg value={sub} options={THEME_SUBS} onChange={pick} label="Theme" small />
+      </div>
+      {sub === 'colours' && <Colours ctx={ctx} />}
+      {sub === 'fonts' && <Fonts ctx={ctx} />}
+      {sub === 'tokens' && <Tokens ctx={ctx} />}
+    </>
+  )
+}
+
 type TokenKind = 'colour' | 'type' | 'space' | 'all'
 const isType = (t: StudioToken) => t.kind === 'font' || /font|text|type|fs-|h[1-6]|leading|line-height|heading|title|weight/i.test(t.name)
 
-function Theme({ ctx }: { ctx: StudioCtx }) {
+/** the site's design tokens (CSS variables on :root), to change one in one place */
+function Tokens({ ctx }: { ctx: StudioCtx }) {
   const [kind, setKind] = useState<TokenKind>('colour')
   const [filter, setFilter] = useState('')
   const tokens = ctx.design?.tokens
@@ -88,7 +126,7 @@ function Theme({ ctx }: { ctx: StudioCtx }) {
     )
   return (
     <div className="st-pad">
-      <p className="st-tip">The site’s own colours and sizes. Change one and it changes everywhere the site uses it, on every page.</p>
+      <p className="st-tip">The site’s named colours and sizes (its CSS variables). Change one and it changes everywhere the site uses it, on every page.</p>
       <div className="st-row">
         <Seg
           small

@@ -14,6 +14,7 @@ import { typeOf, uploadPath } from './files.ts'
 import { OVERLAY_JS } from './studio-overlay.ts'
 import { encodeFor, findInText, findPattern, fitCase, modeAt, replaceHits, sourceFiles, textPattern, type Hit } from './studio-source.ts'
 import { sanitiseSvg } from './studio-media.ts'
+import { cachedFont, ensureFaces, fontSwap, paletteSwap } from './studio-theme.ts'
 
 // Studio: the visual site builder. Each website gets its own clean clone under
 // .jarvis/studio/<repo> (never your working folder, so Studio can't trip over
@@ -434,6 +435,16 @@ async function startPreview(r: Runtime, root: string) {
       if (/\.svg$/i.test(file)) res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
       return send(file, res, 200)
     }
+    const font = url.pathname.match(/^\/__studio\/font\/([a-f0-9]{16}\.woff2)$/)
+    if (font) {
+      // a Google font you're trying out, before it's saved into the site
+      const file = cachedFont(font[1])
+      if (!file) return notFound(root, res)
+      res.setHeader('Cache-Control', 'max-age=86400')
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Content-Type', 'font/woff2')
+      return fs.createReadStream(file).pipe(res)
+    }
     const extra = opsScript(req, url)
     if (r.devPort && r.dev) return proxy(req, res, r.devPort, extra)
     serveStatic(root, url.pathname, res, extra)
@@ -480,7 +491,8 @@ function send(file: string, res: http.ServerResponse, code: number, extra = '') 
   res.setHeader('Content-Type', type)
   res.setHeader('Cache-Control', 'no-store')
   // Studio's photo editor draws the site's photos onto a canvas
-  if (type.startsWith('image/')) res.setHeader('Access-Control-Allow-Origin', '*')
+  // (and its side panel draws each font's name in that font)
+  if (type.startsWith('image/') || type.startsWith('font/')) res.setHeader('Access-Control-Allow-Origin', '*')
   if (type.startsWith('text/html')) return res.end(inject(fs.readFileSync(file, 'utf8'), extra))
   fs.createReadStream(file).pipe(res)
 }
@@ -1037,6 +1049,12 @@ function instruction(op: StudioOp, placed: Map<string, string>, nums: Map<string
     }
     case 'replace':
       return `${op.scope === 'site' ? 'Across the whole site (every page, template and data file)' : on}, replace the visible words “${op.find}” with “${op.replace}”${op.matchCase ? ' (matching capitals exactly)' : ' (any capitals)'}${op.wholeWord ? ', whole words only' : ''}. Only words a visitor reads: not code, class names, file names or addresses.`
+    case 'palette':
+      return `Across the whole site (every stylesheet, inline style, SVG colour and data file), change these colours: ${Object.entries(op.map)
+        .map(([a, b]) => `${a} → ${b}`)
+        .join(', ')}. Keep each one's see-through (alpha) value and the way it's written (hex stays hex, rgba stays rgba). Don't change colours inside photos, logos or SVG files.`
+    case 'fonts':
+      return `Across the whole site, swap these fonts: ${op.swaps.map((x) => `“${x.from}” for “${x.to}”${x.scale !== 1 ? ` at ${Math.round(x.scale * 100)}% size (size-adjust in its @font-face)` : ''}`).join('; ')}.`
     case 'theme':
       return `Change the site-wide design token \`${op.name}\` from \`${op.before}\` to \`${op.after}\` where it's defined (usually :root in the main stylesheet), so it changes everywhere it's used.`
     case 'ask':
@@ -1172,10 +1190,27 @@ export function saveOps(p: Project, ops: StudioOp[], exe: string | null) {
     const rest: StudioOp[] = []
     const notes = new Map<string, string>()
     const failed = new Map<string, string>()
+    const said: string[] = []
     for (const op of ops) {
       // an edit to something an edit still waiting for Claude made goes with it
       if (op.made && !ops.some((o) => o.id === op.made)) {
         failed.set(op.id, 'It was made on something that’s no longer there')
+        continue
+      }
+      // the site's colours and fonts are rewritten by Studio itself: Claude couldn't fetch the fonts, and a colour it misses is one too many
+      if (op.kind === 'palette' || op.kind === 'fonts') {
+        try {
+          if (op.kind === 'palette') {
+            const out = paletteSwap(r.folder, kind, op.map)
+            if (out.missing.length) said.push(`${out.missing.length} colour${out.missing.length === 1 ? ' wasn’t' : 's weren’t'} in the source any more: ${out.missing.join(', ')}.`)
+          } else {
+            const out = fontSwap(r.folder, kind, root, await ensureFaces(op.swaps))
+            said.push(`Fonts: ${out.notes.join('; ')}.`)
+          }
+          done.push(op.id)
+        } catch (e) {
+          failed.set(op.id, (e as Error).message)
+        }
         continue
       }
       let changed: string[] | null = null
@@ -1234,6 +1269,7 @@ export function saveOps(p: Project, ops: StudioOp[], exe: string | null) {
     await record(r, ok.map(opNote), [...new Set(ok.map((o) => o.page))])
     const text = [
       `${ok.length} of ${ops.length} edit${ops.length === 1 ? '' : 's'} saved into the source.${done.length ? ` ${done.length} written in directly.` : ''}`,
+      said.join(' '),
       rest.length && claudeText ? `Claude: ${claudeText}` : '',
     ]
       .filter(Boolean)

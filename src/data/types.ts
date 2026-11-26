@@ -473,6 +473,15 @@ export type StudioOp =
   | (StudioOpBase & { kind: 'replace'; find: string; replace: string; matchCase: boolean; wholeWord: boolean; scope: 'site' | 'page' })
   /** one of the site's design tokens (a CSS custom property on :root), for the whole site */
   | (StudioOpBase & { kind: 'theme'; name: string; before: string; after: string })
+  /**
+   * the site's colours, for the whole site: `map` is every colour that changes
+   * (#rrggbb → #rrggbb, see-through versions keep their see-through). `drop`,
+   * `over` and `set` are how it was chosen: colours taken out (each goes to the
+   * nearest one kept unless `over` says which), and colours given a new value.
+   */
+  | (StudioOpBase & { kind: 'palette'; map: Record<string, string>; drop: string[]; over: Record<string, string>; set: Record<string, string> })
+  /** the site's fonts, for the whole site: each one swapped for another, sized to look the same */
+  | (StudioOpBase & { kind: 'fonts'; swaps: StudioFontSwap[] })
   /** a change described in words, for Claude to make with the batch */
   | (StudioOpBase & { kind: 'ask'; prompt: string })
 
@@ -598,6 +607,92 @@ export interface StudioDesign {
   animations: { attr: string; values: string[] }[]
   /** font weights each family has loaded */
   fonts: { family: string; weights: number[] }[]
+}
+
+/** One colour the site's source uses (see-through versions of it counted with it). */
+export interface StudioColour {
+  /** #rrggbb */
+  hex: string
+  /** places in its styles and markup, plus uses of the design tokens set to it */
+  uses: number
+  /** of those places, how many are see-through (rgba, 8-digit hex) */
+  seeThrough: number
+  /** places in scripts and data files (charts, 3D scenes, generated markup) */
+  scripts: number
+  /** design tokens set to it (--brown, $ink) */
+  tokens: string[]
+  /** where it's written, most first */
+  files: { file: string; count: number }[]
+}
+
+/** A font the site uses, from its source. */
+export interface StudioFont {
+  /** as the site's CSS names it ("KHD Serif") */
+  family: string
+  /** the typeface behind a site's own name for it ("Cormorant Garamond"), when that can be told */
+  actual: string | null
+  category: StudioFontCategory
+  /** self-hosted in the repo, loaded from Google Fonts, or a font on the visitor's computer */
+  source: 'site' | 'google' | 'system'
+  /** places its name is used, plus uses of the tokens set to it */
+  uses: number
+  tokens: string[]
+  /** weights its @font-face rules cover ("400", "100 900") */
+  weights: string[]
+  /** one fixed-weight file stretched over a range of weights (its rules say 100 900, the file is SemiBold): that weight */
+  pinned: number | null
+  italic: boolean
+  /** its font files, relative to the repo */
+  files: string[]
+  /** its @font-face rules, with each file's address on the site (for drawing its name in it) */
+  faces: { url: string; weight: string; style: string }[]
+  /** a full font stack it's used in */
+  stack: string
+}
+
+export type StudioFontCategory = 'serif' | 'sans-serif' | 'display' | 'handwriting' | 'monospace'
+
+/** A family from Google Fonts, for swapping a site font. */
+export interface GoogleFont {
+  family: string
+  category: StudioFontCategory
+  /** serif or sans-serif, for display fonts: what its letters are like */
+  stroke: 'serif' | 'sans-serif' | null
+  /** static weights it comes in */
+  weights: number[]
+  /** the weights that also come in italic */
+  italics: number[]
+  /** a variable font's weight range */
+  variable: { min: number; max: number } | null
+}
+
+/** A font file Studio fetched from Google Fonts (cached on this computer until saved into the site). */
+export interface StudioFontFace {
+  /** the cached file's name: served on the canvas at /__studio/font/<file> */
+  file: string
+  /** "400", or "100 900" for a variable font */
+  weight: string
+  /** the weight the file really is, when it's one weight set to cover a range (as the font it replaces was) */
+  actual?: number
+  style: 'normal' | 'italic'
+  subset: string
+  unicodeRange: string | null
+}
+
+/** One font swapped for another. */
+export interface StudioFontSwap {
+  /** the family as the site names it */
+  from: string
+  /** a family the site already has, or one from Google Fonts */
+  to: string
+  google: boolean
+  /** the size the new font is shown at, so it looks the same size as the old one (1 = as it is) */
+  scale: number
+  /** true while `scale` is Studio's own match, not one picked by hand */
+  auto: boolean
+  category: StudioFontCategory
+  /** the Google font's files */
+  faces?: StudioFontFace[]
 }
 
 /** A node of the layers list. */

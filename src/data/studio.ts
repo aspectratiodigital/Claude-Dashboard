@@ -18,7 +18,7 @@ const what = (op: StudioOp, n = 30) => (op.text ? `“${cut(op.text, n)}”` : o
 
 /** Edits that show on every page, not just the one they were made on. */
 export function isGlobal(op: StudioOp): boolean {
-  return op.kind === 'theme' || (op.kind === 'replace' && op.scope === 'site') || (op.kind === 'text' && !!op.everywhere)
+  return op.kind === 'theme' || op.kind === 'palette' || op.kind === 'fonts' || (op.kind === 'replace' && op.scope === 'site') || (op.kind === 'text' && !!op.everywhere)
 }
 
 /** "900px and wider", "up to 899px", "600 to 899px" or "every size" */
@@ -108,6 +108,14 @@ export function opNote(op: StudioOp): string {
       return `Replace “${cut(op.find, 30)}” with “${cut(op.replace, 30)}” ${op.scope === 'site' ? 'across the site' : `on the ${on}`}`
     case 'theme':
       return `Change the site’s ${op.name} from ${cut(op.before, 24)} to ${cut(op.after, 24)}`
+    case 'palette': {
+      const drop = op.drop.length
+      const set = Object.keys(op.set).filter((k) => !op.drop.includes(k)).length
+      if (drop + set === 1) return drop ? `Swap the colour ${op.drop[0]} for ${op.map[op.drop[0]] ?? 'the nearest kept'} across the site` : `Change the colour ${Object.keys(op.set)[0]} to ${Object.values(op.set)[0]} across the site`
+      return `Tidy the site’s colours: ${[drop ? `${drop} taken out` : '', set ? `${set} changed` : ''].filter(Boolean).join(', ')}`
+    }
+    case 'fonts':
+      return `Swap ${op.swaps.map((x) => `${x.from} for ${x.to}${Math.abs(x.scale - 1) >= 0.005 ? ` (at ${Math.round(x.scale * 100)}%)` : ''}`).join(', ')} across the site`
     case 'ask':
       return `${cut(op.prompt, 70)} (${what(op)} on the ${on})`
   }

@@ -31,6 +31,7 @@ import { altFromPhoto, photoToFile, stockFetch, stockSearch, uploadedSvg } from 
 import { history, krystalDeploy, krystalProblem, krystalStatus, preChecks, rollBack, scheduleOf, setSchedule, startScheduler, type KrystalState } from './studio-publish.ts'
 import { analytics, napAcrossSite, psiDetail, searchConsole, weeklyCheck, weeklyDue, weeklyOf } from './studio-insights.ts'
 import { phoneOff, phoneOn, phoneState, phoneUpdate } from './studio-share.ts'
+import { googleCatalog, googleFaces, googlePreview, palette, siteFonts } from './studio-theme.ts'
 import { log } from './util.ts'
 
 // Studio's part of the local API: opening a site, saving and publishing edits,
@@ -49,7 +50,7 @@ export interface StudioHost {
 
 // --- Checking edits from the browser ---------------------------------------------------------
 
-const OP_KINDS = new Set(['text', 'image', 'move', 'order', 'link', 'alt', 'duplicate', 'hide', 'add-image', 'meta', 'style', 'attr', 'paste', 'table', 'bg', 'video', 'embed', 'svg', 'replace', 'theme', 'ask'])
+const OP_KINDS = new Set(['text', 'image', 'move', 'order', 'link', 'alt', 'duplicate', 'hide', 'add-image', 'meta', 'style', 'attr', 'paste', 'table', 'bg', 'video', 'embed', 'svg', 'replace', 'theme', 'palette', 'fonts', 'ask'])
 const META_FIELDS = new Set(['title', 'description', 'og:title', 'og:description', 'og:image'])
 const UPLOAD = /^[a-z0-9]{6,24}$/
 /** a photo already in the site, as the preview serves it */
@@ -118,6 +119,19 @@ export function validOp(o: unknown): o is StudioOp {
       return str('find', 500) && (x.find as string).trim().length > 0 && str('replace', 2000) && typeof x.matchCase === 'boolean' && typeof x.wholeWord === 'boolean' && (x.scope === 'site' || x.scope === 'page')
     case 'theme':
       return str('name', 80) && /^--[\w-]+$/.test(x.name as string) && str('before', 300) && str('after', 300) && !/[{};<>]/.test(x.after as string)
+    case 'palette': {
+      const hex = (v: unknown) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)
+      const rec = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).length <= 400 && Object.entries(v).every(([k, c]) => hex(k) && hex(c))
+      return rec(x.map) && rec(x.over) && rec(x.set) && Array.isArray(x.drop) && x.drop.length <= 400 && x.drop.every(hex)
+    }
+    case 'fonts': {
+      const name = (v: unknown) => typeof v === 'string' && v.trim().length > 0 && v.length <= 100 && !/["'`;{}<>\\]/.test(v)
+      const face = (f: Record<string, unknown>) =>
+        !!f && typeof f.file === 'string' && /^[a-f0-9]{16}\.woff2$/.test(f.file) && typeof f.weight === 'string' && /^\d{1,4}( \d{1,4})?$/.test(f.weight) && (f.actual === undefined || (typeof f.actual === 'number' && f.actual >= 1 && f.actual <= 1000)) && (f.style === 'normal' || f.style === 'italic') && typeof f.subset === 'string' && /^[\w-]{1,20}$/.test(f.subset) && (f.unicodeRange === null || (typeof f.unicodeRange === 'string' && /^[\sU+0-9A-Fa-f,?-]{1,3000}$/.test(f.unicodeRange)))
+      const swap = (v: Record<string, unknown>) =>
+        !!v && name(v.from) && name(v.to) && typeof v.google === 'boolean' && typeof v.scale === 'number' && v.scale >= 0.5 && v.scale <= 2 && typeof v.auto === 'boolean' && ['serif', 'sans-serif', 'display', 'handwriting', 'monospace'].includes(v.category as string) && (v.faces === undefined || (Array.isArray(v.faces) && v.faces.length <= 40 && v.faces.every(face)))
+      return Array.isArray(x.swaps) && x.swaps.length > 0 && x.swaps.length <= 8 && x.swaps.every(swap)
+    }
     case 'ask':
       return str('prompt', 4000) && (x.prompt as string).trim().length > 0
     default:
@@ -389,6 +403,87 @@ export async function studioRoute(route: string, url: URL, req: IncomingMessage,
     }
 
     // --- Photos ------------------------------------------------------------------------------
+
+    // --- The site's colours and fonts ------------------------------------------------------
+
+    case 'GET /api/studio/palette': {
+      // every colour in the site's source, with its tokens and where it's written
+      const p = find(q('project'))
+      const r = p ? runtimeOf(p.id) : null
+      if (!r) return json(res, 409, { error: 'Open the site in Studio first' }), true
+      return json(res, 200, palette(r.folder, detectKind(r.folder).kind)), true
+    }
+
+    case 'GET /api/studio/fonts': {
+      // every font the site's CSS names, where each comes from and what kind it is
+      const p = find(q('project'))
+      const r = p ? runtimeOf(p.id) : null
+      if (!r) return json(res, 409, { error: 'Open the site in Studio first' }), true
+      const { kind, root } = detectKind(r.folder)
+      return json(res, 200, await siteFonts(r.folder, kind, root)), true
+    }
+
+    case 'GET /api/studio/google-fonts': {
+      // Google Fonts to swap one for: matching the words typed, of a kind, most popular first
+      try {
+        const words = (q('q') ?? '').trim().toLowerCase()
+        const kind = q('category')
+        const all = (await googleCatalog()).filter((f) => !kind || kind === 'all' || f.category === kind)
+        const hits = words ? [...all.filter((f) => f.family.toLowerCase().startsWith(words)), ...all.filter((f) => !f.family.toLowerCase().startsWith(words) && f.family.toLowerCase().includes(words))] : all
+        return json(res, 200, { fonts: hits.slice(0, Math.min(Number(q('limit')) || 40, 120)), total: hits.length }), true
+      } catch (e) {
+        return json(res, 502, { error: (e as Error).message }), true
+      }
+    }
+
+    case 'GET /api/studio/google-font-preview': {
+      // a Google font's name drawn in itself, for the list
+      try {
+        const file = await googlePreview(q('family') ?? '')
+        res.writeHead(200, { 'Content-Type': 'font/woff2', 'Cache-Control': 'max-age=604800' })
+        fs.createReadStream(file).pipe(res)
+      } catch (e) {
+        json(res, 404, { error: (e as Error).message })
+      }
+      return true
+    }
+
+    case 'GET /api/studio/site-font': {
+      // one of the site's own font files, to draw its name in Studio's panel (the site's dev server may not share fonts with another origin)
+      const r = ready(find(q('project')))
+      if (!r) return json(res, 409, { error: 'Open the site in Studio first' }), true
+      const u = q('url') ?? ''
+      const type = { woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf' }[u.match(/\.(woff2?|ttf|otf)$/i)?.[1].toLowerCase() ?? ''] as string | undefined
+      if (!u.startsWith('/') || u.startsWith('//') || u.includes('..') || !type) return json(res, 400, { error: 'Not one of the site’s font files' }), true
+      try {
+        const base = `http://127.0.0.1:${r.site.port}`
+        const target = new URL(u, base)
+        if (target.origin !== base) return json(res, 400, { error: 'Not one of the site’s font files' }), true
+        const got = await fetch(target, { signal: AbortSignal.timeout(15000) })
+        if (!got.ok) return json(res, 404, { error: `The site answered ${got.status}` }), true
+        const bytes = Buffer.from(await got.arrayBuffer())
+        if (bytes.length > 12 * 1024 * 1024) return json(res, 413, { error: 'Too big for a font' }), true
+        res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'max-age=300' })
+        res.end(bytes)
+      } catch (e) {
+        json(res, 502, { error: (e as Error).message })
+      }
+      return true
+    }
+
+    case 'POST /api/studio/google-font': {
+      // a Google font's files fetched into the cache, to try on the canvas (and save into the site later)
+      const body = await readBody(req)
+      const family = typeof body.family === 'string' ? body.family.slice(0, 100) : ''
+      const weights = Array.isArray(body.weights) ? (body.weights as unknown[]).map(Number).filter((n) => n >= 1 && n <= 1000).slice(0, 12) : [400, 700]
+      try {
+        const pin = body.pin && typeof body.pin === 'object' ? (body.pin as Record<string, unknown>) : null
+        const pinned = pin && typeof pin.weight === 'number' && pin.weight >= 1 && pin.weight <= 1000 && typeof pin.declare === 'string' && /^\d{1,4}( \d{1,4})?$/.test(pin.declare) ? { weight: pin.weight, declare: pin.declare } : null
+        return json(res, 200, { faces: await googleFaces(family, { weights, italic: body.italic === true, pin: pinned }) }), true
+      } catch (e) {
+        return json(res, 502, { error: (e as Error).message }), true
+      }
+    }
 
     case 'GET /api/studio/photos': {
       const p = find(q('project'))
